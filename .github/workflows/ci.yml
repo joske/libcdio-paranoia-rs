@@ -12,9 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        # TODO: check which packages are needed, if any
       - name: Install additional packages
-        run: sudo apt-get update && sudo apt-get install -y build-essential
+        run: sudo apt-get update && sudo apt-get install -y build-essential libcdio libcdio-paranoia
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
