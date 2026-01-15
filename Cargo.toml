@@ -1,10 +1,10 @@
 [package]
-name = "cdio-paranoia"
+name = "libcdio-paranoia-rs"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Rust implementation of libcdio-paranoia - CD audio extraction with error correction"
-repository = "https://github.com/example/libcdio-paranoia-rs"
+repository = "https://github.com/joske/libcdio-paranoia-rs"
 keywords = ["cdio", "paranoia", "cd", "audio", "ripping"]
 categories = ["multimedia::audio", "hardware-support"]
 
