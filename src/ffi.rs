@@ -35,7 +35,7 @@ pub struct TocT {
     pub dw_start_sector: i32,
 }
 
-/// C-compatible drive structure (matches cdrom_drive_s layout).
+/// C-compatible drive structure (matches `cdrom_drive_s` layout).
 #[repr(C)]
 pub struct CdromDriveS {
     pub p_cdio: *mut c_void,
@@ -73,7 +73,7 @@ static VERSION_STR: &[u8] = concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
 /// Get libcdio-paranoia version string.
 #[no_mangle]
 pub extern "C" fn cdio_paranoia_version() -> *const c_char {
-    VERSION_STR.as_ptr() as *const c_char
+    VERSION_STR.as_ptr().cast()
 }
 
 /// Get CDDA interface version string.
@@ -172,7 +172,7 @@ pub unsafe extern "C" fn cdio_paranoia_read_limited(
         Ok(data) => {
             // The data is stored in paranoia's internal buffer
             // Return pointer to it (valid until next read)
-            data.as_ptr() as *mut c_short
+            data.as_ptr().cast_mut()
         }
         Err(_) => ptr::null_mut(),
     }
@@ -228,7 +228,7 @@ pub unsafe extern "C" fn cdio_cddap_find_a_cdrom(
 }
 
 /// Identify a CD-ROM drive by path (does NOT open it).
-/// Call cdio_cddap_open() after this to open the drive.
+/// Call `cdio_cddap_open()` after this to open the drive.
 #[no_mangle]
 pub unsafe extern "C" fn cdio_cddap_identify(
     psz_device: *const c_char,
@@ -245,12 +245,7 @@ pub unsafe extern "C" fn cdio_cddap_identify(
         }
     };
 
-    let message_dest = match messagedest {
-        0 => MessageDest::ForgetIt,
-        1 => MessageDest::PrintIt,
-        2 => MessageDest::LogIt,
-        _ => MessageDest::ForgetIt,
-    };
+    let destination = MessageDest::from(messagedest);
 
     if !ppsz_message.is_null() {
         unsafe { *ppsz_message = ptr::null_mut() };
@@ -258,7 +253,7 @@ pub unsafe extern "C" fn cdio_cddap_identify(
 
     match CdromDrive::identify_device(device) {
         Ok(mut drive) => {
-            drive.message_dest = message_dest;
+            drive.message_dest = destination;
             Box::into_raw(Box::new(drive))
         }
         Err(_) => ptr::null_mut(),
@@ -329,7 +324,7 @@ pub unsafe extern "C" fn cdio_cddap_read(
     match drive.read_audio(beginsector, sectors) {
         Ok(data) => {
             if !p_buffer.is_null() {
-                let dst = p_buffer as *mut i16;
+                let dst = p_buffer.cast::<i16>();
                 unsafe { ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len()) };
             }
             sectors
@@ -354,7 +349,7 @@ pub unsafe extern "C" fn cdio_cddap_read_timed(
     match drive.read_audio_timed(beginsector, sectors) {
         Ok((data, ms)) => {
             if !p_buffer.is_null() {
-                let dst = p_buffer as *mut i16;
+                let dst = p_buffer.cast::<i16>();
                 unsafe { ptr::copy_nonoverlapping(data.as_ptr(), dst, data.len()) };
             }
             if !milliseconds.is_null() {
@@ -387,7 +382,7 @@ pub unsafe extern "C" fn cdio_cddap_track_lastsector(d: *mut CdromDriveT, i_trac
 /// Get number of tracks.
 #[no_mangle]
 pub unsafe extern "C" fn cdio_cddap_tracks(d: *mut CdromDriveT) -> u8 {
-    unsafe { d.as_ref() }.map(|d| d.track_count()).unwrap_or(0)
+    unsafe { d.as_ref() }.map_or(0, CdromDrive::track_count)
 }
 
 /// Get track containing a sector.
@@ -398,8 +393,7 @@ pub unsafe extern "C" fn cdio_cddap_sector_gettrack(d: *mut CdromDriveT, lsn: Ls
     };
     drive
         .sector_get_track(lsn)
-        .map(|t| t as c_int)
-        .unwrap_or(-1)
+        .map_or(-1, c_int::from)
 }
 
 /// Get track channel count.
@@ -414,11 +408,7 @@ pub unsafe extern "C" fn cdio_cddap_track_audiop(d: *mut CdromDriveT, i_track: u
     let Some(drive) = (unsafe { d.as_ref() }) else {
         return 0;
     };
-    if drive.track_is_audio(i_track) {
-        1
-    } else {
-        0
-    }
+    i32::from(drive.track_is_audio(i_track))
 }
 
 /// Check if track has copy permit.
@@ -436,17 +426,13 @@ pub unsafe extern "C" fn cdio_cddap_track_preemp(_d: *mut CdromDriveT, _i_track:
 /// Get first audio sector on disc.
 #[no_mangle]
 pub unsafe extern "C" fn cdio_cddap_disc_firstsector(d: *mut CdromDriveT) -> Lsn {
-    unsafe { d.as_ref() }
-        .map(|d| d.disc_first_sector())
-        .unwrap_or(-1)
+    unsafe { d.as_ref() }.map_or(-1, CdromDrive::disc_first_sector)
 }
 
 /// Get last audio sector on disc.
 #[no_mangle]
 pub unsafe extern "C" fn cdio_cddap_disc_lastsector(d: *mut CdromDriveT) -> Lsn {
-    unsafe { d.as_ref() }
-        .map(|d| d.disc_last_sector())
-        .unwrap_or(-1)
+    unsafe { d.as_ref() }.map_or(-1, CdromDrive::disc_last_sector)
 }
 
 /// Set drive speed.
@@ -469,18 +455,8 @@ pub unsafe extern "C" fn cdio_cddap_verbose_set(
     mes_action: c_int,
 ) {
     if let Some(drive) = unsafe { d.as_mut() } {
-        let error_dest = match err_action {
-            0 => MessageDest::ForgetIt,
-            1 => MessageDest::PrintIt,
-            2 => MessageDest::LogIt,
-            _ => MessageDest::ForgetIt,
-        };
-        let message_dest = match mes_action {
-            0 => MessageDest::ForgetIt,
-            1 => MessageDest::PrintIt,
-            2 => MessageDest::LogIt,
-            _ => MessageDest::ForgetIt,
-        };
+        let error_dest = MessageDest::from(err_action);
+        let message_dest = MessageDest::from(mes_action);
         drive.set_verbose(error_dest, message_dest);
     }
 }

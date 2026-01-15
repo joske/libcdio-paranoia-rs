@@ -153,7 +153,7 @@ impl DynamicOverlap {
 
         // Update drift estimate
         let mean_drift = self.stage1_stats.mean();
-        self.drift = (self.drift + mean_drift) / 2;
+        self.drift = i64::midpoint(self.drift, mean_drift);
     }
 
     /// Get the current overlap in sectors.
@@ -183,7 +183,7 @@ impl Default for DynamicOverlap {
 /// Searches for where `block_new` overlaps with `block_existing` using
 /// the sort index for fast matching.
 ///
-/// Returns the offset (new_pos - existing_pos) if overlap is found.
+/// Returns the offset (`new_pos - existing_pos`) if overlap is found.
 pub fn find_overlap(
     block_new: &[i16],
     new_offset: i64,

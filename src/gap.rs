@@ -104,10 +104,10 @@ pub fn overlap_backward(
 /// - Block B has extra samples (stuttering) that should be removed
 /// - One block is missing samples that the other has
 ///
-/// Returns (match_in_a, match_in_b):
-/// - Positive match_in_a: A has extra samples that don't appear in B
-/// - Negative match_in_a: A is missing samples that B has
-/// - Same interpretation for match_in_b
+/// Returns (`match_in_a`, `match_in_b`):
+/// - Positive `match_in_a`: A has extra samples that don't appear in B
+/// - Negative `match_in_a`: A is missing samples that B has
+/// - Same interpretation for `match_in_b`
 pub fn stutter_or_gap(
     block_a: &[i16],
     offset_a: i64,

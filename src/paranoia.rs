@@ -102,6 +102,7 @@ impl Paranoia {
     /// Create a new paranoia instance for the given drive.
     ///
     /// Note: This leaks the drive - use `from_drive_ptr` for FFI.
+    #[must_use]
     pub fn new(drive: CdromDrive) -> Self {
         // Leak the drive to get a stable pointer
         let drive_ptr = Box::into_raw(Box::new(drive));
@@ -116,6 +117,7 @@ impl Paranoia {
     }
 
     /// Get the current paranoia mode.
+    #[must_use]
     pub fn mode(&self) -> ParanoiaMode {
         self.mode
     }
@@ -123,9 +125,10 @@ impl Paranoia {
     /// Seek to a position.
     ///
     /// `seek` is in sectors, `whence` follows the standard seek semantics:
-    /// - SEEK_SET: absolute position
-    /// - SEEK_CUR: relative to current
-    /// - SEEK_END: relative to end
+    /// - `SEEK_SET`: absolute position
+    /// - `SEEK_CUR`: relative to current
+    /// - `SEEK_END`: relative to end
+    #[must_use]
     pub fn seek(&mut self, seek: i32, whence: SeekFrom) -> Lsn {
         let target_sector = match whence {
             SeekFrom::Start(_) => self.first_sector + seek,
@@ -189,13 +192,22 @@ impl Paranoia {
 
     /// Read the next sector of verified audio data.
     ///
-    /// Returns a slice of CD_FRAMEWORDS samples (1176 16-bit values).
+    /// Returns a slice of `CD_FRAMEWORDS` samples (1176 16-bit values).
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error returned by `read_limited`.
     pub fn read(&mut self) -> Result<&[i16]> {
         let max_retries = self.max_retries;
         self.read_limited(max_retries)
     }
 
     /// Read the next sector with a specific retry limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the read position is outside the configured range
+    /// or if the drive fails and skipping is disabled.
     pub fn read_limited(&mut self, max_retries: i32) -> Result<&[i16]> {
         let target_sector = (self.cursor / CD_FRAMEWORDS as i64) as Lsn;
 
@@ -250,21 +262,15 @@ impl Paranoia {
 
         for retry in 0..max_retries {
             // First read
-            let read1: Vec<i16> = match drive.read_audio(target_sector, 1) {
-                Ok(data) => data,
-                Err(_) => {
-                    self.report_callback(target_begin, ParanoiaCallback::ReadError);
-                    continue;
-                }
+            let Ok(read1) = drive.read_audio(target_sector, 1) else {
+                self.report_callback(target_begin, ParanoiaCallback::ReadError);
+                continue;
             };
 
             // Second read for verification
-            let read2: Vec<i16> = match drive.read_audio(target_sector, 1) {
-                Ok(data) => data,
-                Err(_) => {
-                    self.report_callback(target_begin, ParanoiaCallback::ReadError);
-                    continue;
-                }
+            let Ok(read2) = drive.read_audio(target_sector, 1) else {
+                self.report_callback(target_begin, ParanoiaCallback::ReadError);
+                continue;
             };
 
             // Compare reads
@@ -325,9 +331,9 @@ impl Paranoia {
 
     /// Stage 2: Verify fragments and merge into root.
     #[allow(dead_code)]
-    fn stage2_verify(&mut self) -> Result<()> {
+    fn stage2_verify(&mut self) {
         if self.cache.is_empty() {
-            return Ok(());
+            return;
         }
 
         // If we only have one block, use it directly (no verification possible)
@@ -336,7 +342,7 @@ impl Paranoia {
             self.root.vector = block.vector.clone();
             self.root.begin = block.begin;
             self.root.lastsector = block.lastsector;
-            return Ok(());
+            return;
         }
 
         // Use the latest block as base if root is empty
@@ -385,16 +391,15 @@ impl Paranoia {
                 }
 
                 // Merge verified data
-                self.merge_verified(i, offset)?;
+                self.merge_verified(i, offset);
             }
         }
 
-        Ok(())
     }
 
     /// Merge verified data into the root block.
     #[allow(dead_code)]
-    fn merge_verified(&mut self, cache_idx: usize, offset: i64) -> Result<()> {
+    fn merge_verified(&mut self, cache_idx: usize, offset: i64) {
         let block = &self.cache[cache_idx];
 
         // Simple merge: extend root with new verified data
@@ -428,8 +433,6 @@ impl Paranoia {
 
             self.root.lastsector = self.root.lastsector.max(block.lastsector);
         }
-
-        Ok(())
     }
 
     /// Trim the cache to stay within limits.
@@ -452,6 +455,7 @@ impl Paranoia {
     ///
     /// # Safety
     /// The returned reference is only valid as long as the drive pointer is valid.
+    #[must_use]
     pub fn drive(&self) -> &CdromDrive {
         unsafe { &*self.drive }
     }
@@ -460,21 +464,25 @@ impl Paranoia {
     ///
     /// # Safety
     /// The returned reference is only valid as long as the drive pointer is valid.
+    #[must_use]
     pub fn drive_mut(&mut self) -> &mut CdromDrive {
         unsafe { &mut *self.drive }
     }
 
     /// Get the current cursor position in samples.
+    #[must_use]
     pub fn cursor(&self) -> i64 {
         self.cursor
     }
 
     /// Get the current cursor position in sectors.
+    #[must_use]
     pub fn cursor_sector(&self) -> Lsn {
         (self.cursor / CD_FRAMEWORDS as i64) as Lsn
     }
 
     /// Get a reference to the output buffer.
+    #[must_use]
     pub fn output_buffer(&self) -> &[i16] {
         &self.output_buffer
     }
@@ -494,12 +502,13 @@ impl Iterator for ParanoiaIter<'_> {
             return None;
         }
 
-        Some(self.paranoia.read().map(|s| s.to_vec()))
+        Some(self.paranoia.read().map(<[i16]>::to_vec))
     }
 }
 
 impl Paranoia {
     /// Create an iterator over sectors.
+    #[must_use]
     pub fn iter(&mut self) -> ParanoiaIter<'_> {
         ParanoiaIter { paranoia: self }
     }
@@ -546,7 +555,9 @@ mod tests {
         drive.setup_test_disc(1, 0, 10);
 
         // Load test data
-        let test_data: Vec<i16> = (0..CD_FRAMEWORDS as i16).collect();
+        let test_data: Vec<i16> = (0..CD_FRAMEWORDS)
+            .map(|value| i16::try_from(value).expect("CD_FRAMEWORDS fits in i16"))
+            .collect();
         drive.load_test_sector(0, test_data.clone());
 
         let mut paranoia = Paranoia::new(drive);

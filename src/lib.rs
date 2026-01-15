@@ -31,7 +31,14 @@
 //! }
 //! ```
 
-#![allow(clippy::missing_safety_doc)]
+#![allow(
+    clippy::missing_safety_doc,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::cast_lossless
+)]
 
 pub mod constants;
 pub mod error;

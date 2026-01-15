@@ -2,6 +2,17 @@
 //!
 //! Usage: cargo run --example cdtest [device] [--rip track output.wav]
 
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_lossless,
+    clippy::uninlined_format_args,
+    clippy::too_many_lines,
+    clippy::unreadable_literal
+)]
+
 use std::{
     env,
     fs::File,
@@ -176,7 +187,7 @@ fn rip_track_to_wav(
     // Seek to track start (offset from disc first sector)
     let disc_first = paranoia.drive().disc_first_sector();
     let seek_offset = first_sector - disc_first;
-    paranoia.seek(seek_offset, std::io::SeekFrom::Start(0));
+    let _ = paranoia.seek(seek_offset, std::io::SeekFrom::Start(0));
 
     // Set paranoia mode (FULL for error correction)
     paranoia.set_mode(ParanoiaMode::FULL);
@@ -242,7 +253,7 @@ fn write_wav_header(file: &mut File, data_size: u32) -> io::Result<()> {
     file.write_all(&1u16.to_le_bytes())?; // Audio format (PCM)
     file.write_all(&2u16.to_le_bytes())?; // Channels (stereo)
     file.write_all(&44100u32.to_le_bytes())?; // Sample rate
-    file.write_all(&176400u32.to_le_bytes())?; // Byte rate (44100 * 2 * 2)
+    file.write_all(&176_400_u32.to_le_bytes())?; // Byte rate (44100 * 2 * 2)
     file.write_all(&4u16.to_le_bytes())?; // Block align (2 * 2)
     file.write_all(&16u16.to_le_bytes())?; // Bits per sample
 

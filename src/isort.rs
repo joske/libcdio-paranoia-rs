@@ -1,6 +1,6 @@
 //! Fast sample value lookup using hash table indexing.
 //!
-//! This module implements a 65536-bucket hash table for O(1) average-case
+//! This module implements a 65536-bucket hash table for `O(1)` average-case
 //! lookup of sample values in audio data. This is critical for efficient
 //! jitter detection and pattern matching in the paranoia algorithm.
 //!
@@ -17,7 +17,7 @@ const NUM_BUCKETS: usize = 65536;
 pub struct SortLink {
     /// Index into the vector being indexed
     pub index: usize,
-    /// Next link in chain (usize::MAX = end of chain)
+    /// Next link in chain (`usize::MAX` = end of chain)
     pub next: usize,
 }
 
@@ -27,7 +27,7 @@ impl SortLink {
 
 /// Fast sample value lookup structure.
 ///
-/// Indexes a vector of 16-bit samples for O(1) average lookup by value.
+/// Indexes a vector of 16-bit samples for `O(1)` average lookup by value.
 #[derive(Debug)]
 pub struct SortInfo {
     /// Reference to the vector being indexed
@@ -225,7 +225,7 @@ impl Default for SortInfo {
 #[inline]
 fn sample_to_bucket(sample: i16) -> usize {
     // Map -32768..32767 to 0..65535
-    (sample as i32 + 32768) as usize
+    (i32::from(sample) + 32768) as usize
 }
 
 /// Iterator over positions matching a sample value.
@@ -257,7 +257,7 @@ impl Iterator for MatchIterator<'_> {
 /// from `value` at position `pos_a` in block A, looking for matches in
 /// the sort index of block B.
 ///
-/// Returns the offset (pos_b - pos_a) if a match is found.
+/// Returns the offset (`pos_b - pos_a`) if a match is found.
 pub fn find_match(
     block_a: &[i16],
     pos_a: i64,

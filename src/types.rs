@@ -1,6 +1,7 @@
 //! Core type definitions.
 
 use bitflags::bitflags;
+use std::os::raw::c_int;
 
 /// Logical Sector Number - absolute sector position on disc
 pub type Lsn = i32;
@@ -78,6 +79,7 @@ pub enum ParanoiaCallback {
 
 impl ParanoiaCallback {
     /// Convert to string representation
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             ParanoiaCallback::Read => "read",
@@ -103,7 +105,6 @@ impl ParanoiaCallback {
 impl From<i32> for ParanoiaCallback {
     fn from(value: i32) -> Self {
         match value {
-            0 => ParanoiaCallback::Read,
             1 => ParanoiaCallback::Verify,
             2 => ParanoiaCallback::FixupEdge,
             3 => ParanoiaCallback::FixupAtom,
@@ -120,6 +121,16 @@ impl From<i32> for ParanoiaCallback {
             14 => ParanoiaCallback::Wrote,
             15 => ParanoiaCallback::Finished,
             _ => ParanoiaCallback::Read,
+        }
+    }
+}
+
+impl From<c_int> for MessageDest {
+    fn from(value: c_int) -> Self {
+        match value {
+            1 => MessageDest::PrintIt,
+            2 => MessageDest::LogIt,
+            _ => MessageDest::ForgetIt,
         }
     }
 }
@@ -161,14 +172,17 @@ impl SampleFlags {
     /// Sample has been verified
     pub const VERIFIED: SampleFlags = SampleFlags(0x04);
 
+    #[must_use]
     pub fn is_edge(self) -> bool {
         self.0 & Self::EDGE.0 != 0
     }
 
+    #[must_use]
     pub fn is_blanked(self) -> bool {
         self.0 & Self::BLANKED.0 != 0
     }
 
+    #[must_use]
     pub fn is_verified(self) -> bool {
         self.0 & Self::VERIFIED.0 != 0
     }

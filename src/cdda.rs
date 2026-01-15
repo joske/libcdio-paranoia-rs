@@ -116,6 +116,7 @@ impl Drop for LibcdioBackend {
 
 impl CdromDrive {
     /// Create a new stub drive for testing.
+    #[must_use]
     pub fn new_stub() -> Self {
         Self {
             device_name: Some("stub".to_string()),
@@ -143,6 +144,11 @@ impl CdromDrive {
     ///
     /// If `device` is None or empty, the default CD-ROM device is used.
     /// Call `open_drive()` after this to actually open the drive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the device path contains interior null bytes or
+    /// if libcdio cannot identify the drive.
     #[cfg(feature = "libcdio")]
     pub fn identify_device(device: Option<&str>) -> Result<Self> {
         let device_cstr = device
@@ -152,8 +158,7 @@ impl CdromDrive {
 
         let device_ptr = device_cstr
             .as_ref()
-            .map(|s| s.as_ptr())
-            .unwrap_or(ptr::null());
+            .map_or(ptr::null(), |s| s.as_ptr());
 
         let p_cdio = unsafe { cdio_open(device_ptr, driver_id_t_DRIVER_UNKNOWN) };
 
@@ -190,6 +195,10 @@ impl CdromDrive {
     /// Open a CD-ROM drive by device path (identifies AND opens).
     ///
     /// If `device` is None or empty, the default CD-ROM device is used.
+    ///
+    /// # Errors
+    ///
+    /// Returns any error from `identify_device` or from `open_drive`.
     #[cfg(feature = "libcdio")]
     pub fn open(device: Option<&str>) -> Result<Self> {
         let mut drive = Self::identify_device(device)?;
@@ -206,6 +215,10 @@ impl CdromDrive {
     /// Identify a CD-ROM drive by path (legacy API).
     ///
     /// Creates a drive handle without fully opening it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend cannot provide a drive handle.
     pub fn identify(device: &str, message_dest: MessageDest) -> Result<Self> {
         #[cfg(feature = "libcdio")]
         {
@@ -224,6 +237,11 @@ impl CdromDrive {
     }
 
     /// Open the drive for reading.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend fails to read the table of contents or
+    /// otherwise refuses to open the drive.
     pub fn open_drive(&mut self) -> Result<()> {
         if self.opened {
             return Ok(());
@@ -250,11 +268,15 @@ impl CdromDrive {
     }
 
     /// Read the table of contents from the disc.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if libcdio cannot provide the disc metadata.
     #[cfg(feature = "libcdio")]
     fn read_toc(&mut self) -> Result<()> {
         let p_cdio = match &self.backend {
             DriveBackend::Libcdio(backend) => backend.p_cdio,
-            _ => return Ok(()),
+            DriveBackend::Stub(_) => return Ok(()),
         };
 
         // Get number of tracks
@@ -280,8 +302,7 @@ impl CdromDrive {
 
             if lsn == CDIO_INVALID_LSN {
                 return Err(Error::TocReadError(format!(
-                    "Invalid LSN for track {}",
-                    track_num
+                    "Invalid LSN for track {track_num}"
                 )));
             }
 
@@ -327,6 +348,10 @@ impl CdromDrive {
     ///
     /// Reads `sectors` sectors starting at `begin_sector`.
     /// Returns a vector of 16-bit audio samples.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the drive is not open or the backend reports a read failure.
     pub fn read_audio(&mut self, begin_sector: Lsn, sectors: i64) -> Result<Vec<i16>> {
         if !self.opened {
             return Err(Error::DeviceNotOpen);
@@ -361,7 +386,7 @@ impl CdromDrive {
                 let result = unsafe {
                     cdio_read_audio_sectors(
                         backend.p_cdio,
-                        buffer.as_mut_ptr() as *mut _,
+                        buffer.as_mut_ptr().cast(),
                         begin_sector,
                         sectors as u32,
                     )
@@ -382,7 +407,7 @@ impl CdromDrive {
 
                 // Apply byte swapping if needed
                 if self.swap_bytes {
-                    Ok(samples.into_iter().map(|s| s.swap_bytes()).collect())
+                    Ok(samples.into_iter().map(i16::swap_bytes).collect())
                 } else {
                     Ok(samples)
                 }
@@ -409,12 +434,20 @@ impl CdromDrive {
     }
 
     /// Read audio sectors with timing information.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from `read_audio`.
     pub fn read_audio_timed(&mut self, begin_sector: Lsn, sectors: i64) -> Result<(Vec<i16>, i32)> {
         let data = self.read_audio(begin_sector, sectors)?;
         Ok((data, self.last_milliseconds))
     }
 
     /// Get the first sector of a track.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the track index is out of range.
     pub fn track_first_sector(&self, track: TrackNum) -> Result<Lsn> {
         if track == 0 || track > self.tracks {
             return Err(Error::InvalidTrack(track));
@@ -423,6 +456,10 @@ impl CdromDrive {
     }
 
     /// Get the last sector of a track.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the track index is out of range.
     pub fn track_last_sector(&self, track: TrackNum) -> Result<Lsn> {
         if track == 0 || track > self.tracks {
             return Err(Error::InvalidTrack(track));
@@ -445,11 +482,13 @@ impl CdromDrive {
     }
 
     /// Get the number of tracks.
+    #[must_use]
     pub fn track_count(&self) -> TrackNum {
         self.tracks
     }
 
     /// Get the track containing a given sector.
+    #[must_use]
     pub fn sector_get_track(&self, lsn: Lsn) -> Option<TrackNum> {
         #[cfg(feature = "libcdio")]
         if let DriveBackend::Libcdio(backend) = &self.backend {
@@ -469,6 +508,7 @@ impl CdromDrive {
     }
 
     /// Check if a track is audio.
+    #[must_use]
     pub fn track_is_audio(&self, track: TrackNum) -> bool {
         if track == 0 || track > self.tracks {
             return false;
@@ -488,6 +528,7 @@ impl CdromDrive {
     }
 
     /// Get the number of channels for a track (2 for stereo, 4 for quad).
+    #[must_use]
     pub fn track_channels(&self, track: TrackNum) -> i32 {
         #[cfg(feature = "libcdio")]
         if let DriveBackend::Libcdio(backend) = &self.backend {
@@ -501,16 +542,22 @@ impl CdromDrive {
     }
 
     /// Get first audio sector on disc.
+    #[must_use]
     pub fn disc_first_sector(&self) -> Lsn {
         self.audio_first_sector
     }
 
     /// Get last audio sector on disc.
+    #[must_use]
     pub fn disc_last_sector(&self) -> Lsn {
         self.audio_last_sector
     }
 
     /// Set drive speed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the backend rejects the speed change request.
     pub fn set_speed(&mut self, speed: i32) -> Result<()> {
         #[cfg(feature = "libcdio")]
         if let DriveBackend::Libcdio(backend) = &self.backend {
@@ -552,6 +599,10 @@ impl CdromDrive {
     }
 
     /// Set up a test disc with the given parameters (stub backend only).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the supplied track count exceeds what fits into `TrackNum` or i32.
     #[cfg(test)]
     pub fn setup_test_disc(&mut self, tracks: TrackNum, first_sector: Lsn, last_sector: Lsn) {
         self.tracks = tracks;
@@ -560,13 +611,17 @@ impl CdromDrive {
         self.opened = true;
 
         // Set up a simple TOC
-        let sectors_per_track = (last_sector - first_sector) / tracks as i32;
-        for i in 0..tracks as usize {
-            self.disc_toc[i] = TocEntry {
-                track: (i + 1) as u8,
-                start_sector: first_sector + (i as i32 * sectors_per_track),
+        let track_count = usize::from(tracks);
+        let sectors_per_track = (last_sector - first_sector) / i32::from(tracks);
+        for idx in 0..track_count {
+            let track_number =
+                u8::try_from(idx + 1).expect("track index should fit in TrackNum range");
+            let idx_i32 = i32::try_from(idx).expect("track index should fit in LSN math");
+            self.disc_toc[idx] = TocEntry {
+                track: track_number,
+                start_sector: first_sector + (idx_i32 * sectors_per_track),
             };
-            self.track_is_audio[i] = true;
+            self.track_is_audio[idx] = true;
         }
     }
 }
@@ -592,7 +647,7 @@ pub fn get_default_device() -> Option<String> {
         .map(String::from);
 
     unsafe {
-        libc::free(device_ptr as *mut _);
+        libc::free(device_ptr.cast());
     }
 
     device
@@ -636,7 +691,9 @@ mod tests {
         drive.opened = true;
 
         // Load test data
-        let test_data: Vec<i16> = (0..CD_FRAMEWORDS as i16).collect();
+        let test_data: Vec<i16> = (0..CD_FRAMEWORDS)
+            .map(|value| i16::try_from(value).expect("CD_FRAMEWORDS fits in i16"))
+            .collect();
         drive.load_test_sector(100, test_data.clone());
 
         // Read it back

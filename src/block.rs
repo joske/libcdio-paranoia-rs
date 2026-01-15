@@ -7,6 +7,15 @@
 
 use crate::{constants::CD_FRAMEWORDS, types::SampleFlags};
 
+fn block_end(begin: i64, len: usize) -> i64 {
+    begin.saturating_add(i64::try_from(len).unwrap_or(i64::MAX))
+}
+
+fn offset_index(begin: i64, pos: i64) -> Option<usize> {
+    let offset = pos.checked_sub(begin)?;
+    usize::try_from(offset).ok()
+}
+
 /// Raw CD read cache block.
 ///
 /// Stores audio samples read from the CD along with per-sample metadata
@@ -25,6 +34,7 @@ pub struct CBlock {
 
 impl CBlock {
     /// Create a new empty cache block.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             vector: Vec::new(),
@@ -35,6 +45,7 @@ impl CBlock {
     }
 
     /// Create a cache block with pre-allocated capacity.
+    #[must_use]
     pub fn with_capacity(samples: usize) -> Self {
         Self {
             vector: Vec::with_capacity(samples),
@@ -45,6 +56,7 @@ impl CBlock {
     }
 
     /// Create a cache block from raw sector data.
+    #[must_use]
     pub fn from_sectors(data: &[i16], begin: i64, lastsector: i64) -> Self {
         let len = data.len();
         Self {
@@ -57,41 +69,47 @@ impl CBlock {
 
     /// Get the number of samples in this block.
     #[inline]
+    #[must_use]
     pub fn len(&self) -> usize {
         self.vector.len()
     }
 
     /// Check if the block is empty.
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.vector.is_empty()
     }
 
     /// Get the ending position (exclusive) of this block.
     #[inline]
+    #[must_use]
     pub fn end(&self) -> i64 {
-        self.begin + self.vector.len() as i64
+        block_end(self.begin, self.vector.len())
     }
 
     /// Check if a position falls within this block.
     #[inline]
+    #[must_use]
     pub fn contains(&self, pos: i64) -> bool {
         pos >= self.begin && pos < self.end()
     }
 
     /// Get a sample at an absolute position.
+    #[must_use]
     pub fn get(&self, pos: i64) -> Option<i16> {
         if self.contains(pos) {
-            Some(self.vector[(pos - self.begin) as usize])
+            offset_index(self.begin, pos).and_then(|idx| self.vector.get(idx)).copied()
         } else {
             None
         }
     }
 
     /// Get flags at an absolute position.
+    #[must_use]
     pub fn get_flags(&self, pos: i64) -> Option<SampleFlags> {
         if self.contains(pos) {
-            Some(self.flags[(pos - self.begin) as usize])
+            offset_index(self.begin, pos).and_then(|idx| self.flags.get(idx)).copied()
         } else {
             None
         }
@@ -100,14 +118,20 @@ impl CBlock {
     /// Set flags at an absolute position.
     pub fn set_flags(&mut self, pos: i64, flags: SampleFlags) {
         if self.contains(pos) {
-            self.flags[(pos - self.begin) as usize] = flags;
+            if let Some(idx) = offset_index(self.begin, pos) {
+                self.flags[idx] = flags;
+            }
         }
     }
 
     /// Mark a range as verified.
     pub fn mark_verified(&mut self, start: i64, end: i64) {
-        let start_idx = (start - self.begin).max(0) as usize;
-        let end_idx = ((end - self.begin) as usize).min(self.flags.len());
+        let start_offset = start.saturating_sub(self.begin);
+        let end_offset = end.saturating_sub(self.begin);
+        let mut start_idx = usize::try_from(start_offset).unwrap_or(0);
+        start_idx = start_idx.min(self.flags.len());
+        let mut end_idx = usize::try_from(end_offset).unwrap_or(self.flags.len());
+        end_idx = end_idx.min(self.flags.len());
         for flag in &mut self.flags[start_idx..end_idx] {
             flag.0 |= SampleFlags::VERIFIED.0;
         }
@@ -144,6 +168,7 @@ pub struct VFragment {
 
 impl VFragment {
     /// Create a new empty fragment.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             vector: Vec::new(),
@@ -153,6 +178,7 @@ impl VFragment {
     }
 
     /// Create a fragment from a slice of samples.
+    #[must_use]
     pub fn from_samples(data: &[i16], begin: i64, lastsector: i64) -> Self {
         Self {
             vector: data.to_vec(),
@@ -161,10 +187,15 @@ impl VFragment {
         }
     }
 
-    /// Create a fragment from a portion of a CBlock.
+    /// Create a fragment from a portion of a `CBlock`.
+    #[must_use]
     pub fn from_cblock(block: &CBlock, start: i64, end: i64) -> Self {
-        let start_idx = (start - block.begin).max(0) as usize;
-        let end_idx = ((end - block.begin) as usize).min(block.vector.len());
+        let start_offset = start.saturating_sub(block.begin);
+        let end_offset = end.saturating_sub(block.begin);
+        let mut start_idx = usize::try_from(start_offset).unwrap_or(0);
+        start_idx = start_idx.min(block.vector.len());
+        let mut end_idx = usize::try_from(end_offset).unwrap_or(block.vector.len());
+        end_idx = end_idx.min(block.vector.len());
         Self {
             vector: block.vector[start_idx..end_idx].to_vec(),
             begin: start.max(block.begin),
@@ -174,32 +205,37 @@ impl VFragment {
 
     /// Get the number of samples.
     #[inline]
+    #[must_use]
     pub fn len(&self) -> usize {
         self.vector.len()
     }
 
     /// Check if empty.
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.vector.is_empty()
     }
 
     /// Get the ending position (exclusive).
     #[inline]
+    #[must_use]
     pub fn end(&self) -> i64 {
-        self.begin + self.vector.len() as i64
+        block_end(self.begin, self.vector.len())
     }
 
     /// Check if a position falls within this fragment.
     #[inline]
+    #[must_use]
     pub fn contains(&self, pos: i64) -> bool {
         pos >= self.begin && pos < self.end()
     }
 
     /// Get a sample at an absolute position.
+    #[must_use]
     pub fn get(&self, pos: i64) -> Option<i16> {
         if self.contains(pos) {
-            Some(self.vector[(pos - self.begin) as usize])
+            offset_index(self.begin, pos).and_then(|idx| self.vector.get(idx)).copied()
         } else {
             None
         }
@@ -232,6 +268,7 @@ pub struct RootBlock {
 
 impl RootBlock {
     /// Create a new root block.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             vector: Vec::new(),
@@ -243,6 +280,7 @@ impl RootBlock {
     }
 
     /// Create a root block with pre-allocated capacity.
+    #[must_use]
     pub fn with_capacity(samples: usize) -> Self {
         Self {
             vector: Vec::with_capacity(samples),
@@ -255,20 +293,23 @@ impl RootBlock {
 
     /// Get the number of samples.
     #[inline]
+    #[must_use]
     pub fn len(&self) -> usize {
         self.vector.len()
     }
 
     /// Check if empty.
     #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.vector.is_empty()
     }
 
     /// Get the ending position (exclusive).
     #[inline]
+    #[must_use]
     pub fn end(&self) -> i64 {
-        self.begin + self.vector.len() as i64
+        block_end(self.begin, self.vector.len())
     }
 
     /// Clear the root block.
@@ -282,11 +323,12 @@ impl RootBlock {
 
     /// Extract a frame of audio data starting at the given position.
     ///
-    /// Returns CD_FRAMEWORDS samples if available.
+    /// Returns `CD_FRAMEWORDS` samples if available.
+    #[must_use]
     pub fn extract_frame(&self, pos: i64) -> Option<&[i16]> {
-        let start = (pos - self.begin) as usize;
-        let end = start + CD_FRAMEWORDS;
-        if start < self.vector.len() && end <= self.vector.len() {
+        let start = offset_index(self.begin, pos)?;
+        let end = start.checked_add(CD_FRAMEWORDS)?;
+        if end <= self.vector.len() {
             Some(&self.vector[start..end])
         } else {
             None
