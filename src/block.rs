@@ -5,8 +5,7 @@
 
 #![allow(dead_code)]
 
-use crate::constants::CD_FRAMEWORDS;
-use crate::types::SampleFlags;
+use crate::{constants::CD_FRAMEWORDS, types::SampleFlags};
 
 /// Raw CD read cache block.
 ///

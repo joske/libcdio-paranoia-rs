@@ -4,13 +4,17 @@
 //! supporting both a stub implementation for testing and a real libcdio
 //! backend when the `libcdio` feature is enabled.
 
-use std::collections::HashMap;
-use std::ffi::{CStr, CString};
-use std::ptr;
+use std::{
+    collections::HashMap,
+    ffi::{CStr, CString},
+    ptr,
+};
 
-use crate::constants::{CDIO_CD_FRAMESIZE_RAW, CD_FRAMEWORDS, MAXTRK};
-use crate::error::{Error, Result, TransportError};
-use crate::types::{Lsn, MessageDest, TocEntry, TrackNum};
+use crate::{
+    constants::{CDIO_CD_FRAMESIZE_RAW, CD_FRAMEWORDS, MAXTRK},
+    error::{Error, Result, TransportError},
+    types::{Lsn, MessageDest, TocEntry, TrackNum},
+};
 
 #[cfg(feature = "libcdio")]
 use libcdio_sys::{
@@ -405,11 +409,7 @@ impl CdromDrive {
     }
 
     /// Read audio sectors with timing information.
-    pub fn read_audio_timed(
-        &mut self,
-        begin_sector: Lsn,
-        sectors: i64,
-    ) -> Result<(Vec<i16>, i32)> {
+    pub fn read_audio_timed(&mut self, begin_sector: Lsn, sectors: i64) -> Result<(Vec<i16>, i32)> {
         let data = self.read_audio(begin_sector, sectors)?;
         Ok((data, self.last_milliseconds))
     }
@@ -491,8 +491,7 @@ impl CdromDrive {
     pub fn track_channels(&self, track: TrackNum) -> i32 {
         #[cfg(feature = "libcdio")]
         if let DriveBackend::Libcdio(backend) = &self.backend {
-            let channels =
-                unsafe { libcdio_sys::cdio_get_track_channels(backend.p_cdio, track) };
+            let channels = unsafe { libcdio_sys::cdio_get_track_channels(backend.p_cdio, track) };
             if channels > 0 {
                 return channels as i32;
             }
@@ -515,8 +514,7 @@ impl CdromDrive {
     pub fn set_speed(&mut self, speed: i32) -> Result<()> {
         #[cfg(feature = "libcdio")]
         if let DriveBackend::Libcdio(backend) = &self.backend {
-            let result =
-                unsafe { libcdio_sys::cdio_set_speed(backend.p_cdio, speed) };
+            let result = unsafe { libcdio_sys::cdio_set_speed(backend.p_cdio, speed) };
             if result != driver_return_code_t_DRIVER_OP_SUCCESS {
                 return Err(Error::OptionNotSupported);
             }

@@ -270,14 +270,8 @@ pub fn analyze_rift_backward(
                 break;
             }
             if block_a[search_idx as usize] == target {
-                let verify = overlap_backward(
-                    block_a,
-                    offset_a,
-                    start_a - i,
-                    block_b,
-                    offset_b,
-                    start_b,
-                );
+                let verify =
+                    overlap_backward(block_a, offset_a, start_a - i, block_b, offset_b, start_b);
                 if verify >= MIN_WORDS_RIFT {
                     match_a = i;
                     break;
@@ -294,14 +288,8 @@ pub fn analyze_rift_backward(
                 break;
             }
             if block_b[search_idx as usize] == target {
-                let verify = overlap_backward(
-                    block_a,
-                    offset_a,
-                    start_a,
-                    block_b,
-                    offset_b,
-                    start_b - i,
-                );
+                let verify =
+                    overlap_backward(block_a, offset_a, start_a, block_b, offset_b, start_b - i);
                 if verify >= MIN_WORDS_RIFT {
                     match_b = i;
                     break;
@@ -331,12 +319,7 @@ pub fn is_silent(data: &[i16], threshold: i16) -> bool {
 ///
 /// Searches forward from `start` for the first non-silent sample.
 /// Returns the position of the boundary, or None if all silent.
-pub fn find_silence_boundary(
-    data: &[i16],
-    offset: i64,
-    start: i64,
-    threshold: i16,
-) -> Option<i64> {
+pub fn find_silence_boundary(data: &[i16], offset: i64, start: i64, threshold: i16) -> Option<i64> {
     let start_idx = (start - offset) as usize;
     if start_idx >= data.len() {
         return None;

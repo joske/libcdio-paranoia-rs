@@ -2,9 +2,11 @@
 //!
 //! Usage: cargo run --example cdtest [device] [--rip track output.wav]
 
-use std::env;
-use std::fs::File;
-use std::io::{self, Write};
+use std::{
+    env,
+    fs::File,
+    io::{self, Write},
+};
 
 use cdio_paranoia::{CdromDrive, Paranoia, ParanoiaMode, CD_FRAMEWORDS};
 
@@ -64,9 +66,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Disc Information ===");
     println!("Device: {:?}", drive.device_name);
     println!("Tracks: {}", drive.track_count());
-    println!("Audio range: sectors {} - {}",
-             drive.disc_first_sector(),
-             drive.disc_last_sector());
+    println!(
+        "Audio range: sectors {} - {}",
+        drive.disc_first_sector(),
+        drive.disc_last_sector()
+    );
 
     let total_sectors = drive.disc_last_sector() - drive.disc_first_sector() + 1;
     let total_seconds = total_sectors as f64 / 75.0; // 75 sectors per second
@@ -85,9 +89,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let track_min = (track_seconds / 60.0) as i32;
         let track_sec = track_seconds % 60.0;
 
-        println!("  Track {:2}: sectors {:6} - {:6} ({:2}:{:05.2}) {}",
-                 track, first, last, track_min, track_sec,
-                 if is_audio { "[AUDIO]" } else { "[DATA]" });
+        println!(
+            "  Track {:2}: sectors {:6} - {:6} ({:2}:{:05.2}) {}",
+            track,
+            first,
+            last,
+            track_min,
+            track_sec,
+            if is_audio { "[AUDIO]" } else { "[DATA]" }
+        );
     }
 
     // Test read
@@ -101,22 +111,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let sector_before = paranoia.cursor_sector();
     match paranoia.read() {
         Ok(samples) => {
-            println!("Read {} samples from sector {}",
-                     samples.len(),
-                     sector_before);
+            println!(
+                "Read {} samples from sector {}",
+                samples.len(),
+                sector_before
+            );
 
             // Calculate some stats
             let min = samples.iter().min().unwrap_or(&0);
             let max = samples.iter().max().unwrap_or(&0);
             let sum: i64 = samples.iter().map(|&s| s as i64).sum();
             let avg = sum / samples.len() as i64;
-            let rms: f64 = (samples.iter()
-                .map(|&s| (s as f64).powi(2))
-                .sum::<f64>() / samples.len() as f64)
+            let rms: f64 = (samples.iter().map(|&s| (s as f64).powi(2)).sum::<f64>()
+                / samples.len() as f64)
                 .sqrt();
 
-            println!("Sample stats: min={}, max={}, avg={}, RMS={:.1}",
-                     min, max, avg, rms);
+            println!(
+                "Sample stats: min={}, max={}, avg={}, RMS={:.1}",
+                min, max, avg, rms
+            );
         }
         Err(e) => {
             println!("Read failed: {}", e);
@@ -154,7 +167,10 @@ fn rip_track_to_wav(
     let total_samples = total_sectors * CD_FRAMEWORDS;
     let total_bytes = total_samples * 2; // 16-bit samples
 
-    println!("Track {}: {} sectors, {} samples", track, total_sectors, total_samples);
+    println!(
+        "Track {}: {} sectors, {} samples",
+        track, total_sectors, total_samples
+    );
     println!("Output: {}", output_path);
 
     // Seek to track start (offset from disc first sector)
@@ -189,8 +205,10 @@ fn rip_track_to_wav(
                     let percent = (sectors_read * 100) / total_sectors;
                     let elapsed = start_time.elapsed().as_secs_f64();
                     let rate = sectors_read as f64 / elapsed;
-                    print!("\rProgress: {}% ({} sectors, {:.1} sectors/sec)  ",
-                           percent, sectors_read, rate);
+                    print!(
+                        "\rProgress: {}% ({} sectors, {:.1} sectors/sec)  ",
+                        percent, sectors_read, rate
+                    );
                     io::stdout().flush()?;
                 }
             }
@@ -202,9 +220,12 @@ fn rip_track_to_wav(
     }
 
     let elapsed = start_time.elapsed();
-    println!("\rCompleted: {} sectors in {:.1}s ({:.1} sectors/sec)     ",
-             sectors_read, elapsed.as_secs_f64(),
-             sectors_read as f64 / elapsed.as_secs_f64());
+    println!(
+        "\rCompleted: {} sectors in {:.1}s ({:.1} sectors/sec)     ",
+        sectors_read,
+        elapsed.as_secs_f64(),
+        sectors_read as f64 / elapsed.as_secs_f64()
+    );
 
     Ok(())
 }
@@ -218,11 +239,11 @@ fn write_wav_header(file: &mut File, data_size: u32) -> io::Result<()> {
     // fmt chunk
     file.write_all(b"fmt ")?;
     file.write_all(&16u32.to_le_bytes())?; // Chunk size
-    file.write_all(&1u16.to_le_bytes())?;  // Audio format (PCM)
-    file.write_all(&2u16.to_le_bytes())?;  // Channels (stereo)
+    file.write_all(&1u16.to_le_bytes())?; // Audio format (PCM)
+    file.write_all(&2u16.to_le_bytes())?; // Channels (stereo)
     file.write_all(&44100u32.to_le_bytes())?; // Sample rate
     file.write_all(&176400u32.to_le_bytes())?; // Byte rate (44100 * 2 * 2)
-    file.write_all(&4u16.to_le_bytes())?;  // Block align (2 * 2)
+    file.write_all(&4u16.to_le_bytes())?; // Block align (2 * 2)
     file.write_all(&16u16.to_le_bytes())?; // Bits per sample
 
     // data chunk

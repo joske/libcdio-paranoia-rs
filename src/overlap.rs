@@ -6,10 +6,10 @@
 
 #![allow(dead_code)]
 
-use crate::constants::{
-    CD_FRAMEWORDS, MAX_SECTOR_OVERLAP, MIN_WORDS_OVERLAP, MIN_WORDS_SEARCH,
+use crate::{
+    constants::{CD_FRAMEWORDS, MAX_SECTOR_OVERLAP, MIN_WORDS_OVERLAP, MIN_WORDS_SEARCH},
+    isort::SortInfo,
 };
-use crate::isort::SortInfo;
 
 /// Statistics for jitter/drift offset tracking.
 #[derive(Debug, Clone)]

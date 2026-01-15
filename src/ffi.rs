@@ -4,16 +4,20 @@
 //! original libcdio-paranoia API, allowing this library to be used as
 //! a drop-in replacement for the C library.
 
-use std::ffi::{c_char, c_int, c_long, c_void, CStr, CString};
-use std::io::SeekFrom;
-use std::ptr;
+use std::{
+    ffi::{c_char, c_int, c_long, c_void, CStr, CString},
+    io::SeekFrom,
+    ptr,
+};
 
 use libc::c_short;
 
-use crate::cdda::CdromDrive;
-use crate::constants::MAXTRK;
-use crate::paranoia::Paranoia;
-use crate::types::{Lsn, MessageDest, ParanoiaMode};
+use crate::{
+    cdda::CdromDrive,
+    constants::MAXTRK,
+    paranoia::Paranoia,
+    types::{Lsn, MessageDest, ParanoiaMode},
+};
 
 /// Opaque paranoia handle for C API.
 pub type CdromParanoiaT = Paranoia;

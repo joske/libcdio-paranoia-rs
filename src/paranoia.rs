@@ -5,13 +5,15 @@
 
 use std::io::SeekFrom;
 
-use crate::block::{CBlock, RootBlock, VFragment};
-use crate::cdda::CdromDrive;
-use crate::constants::{CACHEMODEL_SECTORS, CD_FRAMEWORDS, MIN_WORDS_OVERLAP};
-use crate::error::{Error, Result};
-use crate::isort::SortInfo;
-use crate::overlap::DynamicOverlap;
-use crate::types::{Lsn, ParanoiaCallback, ParanoiaMode};
+use crate::{
+    block::{CBlock, RootBlock, VFragment},
+    cdda::CdromDrive,
+    constants::{CACHEMODEL_SECTORS, CD_FRAMEWORDS, MIN_WORDS_OVERLAP},
+    error::{Error, Result},
+    isort::SortInfo,
+    overlap::DynamicOverlap,
+    types::{Lsn, ParanoiaCallback, ParanoiaMode},
+};
 
 /// Callback function type for progress reporting.
 pub type CallbackFn = Box<dyn FnMut(i64, ParanoiaCallback)>;
@@ -418,7 +420,9 @@ impl Paranoia {
                 // Append
                 let start_idx = (self.root.end() - new_begin) as usize;
                 if start_idx < block.vector.len() {
-                    self.root.vector.extend_from_slice(&block.vector[start_idx..]);
+                    self.root
+                        .vector
+                        .extend_from_slice(&block.vector[start_idx..]);
                 }
             }
 

@@ -77,8 +77,13 @@ impl SortInfo {
     /// Build the hash table index.
     fn build_index(&mut self) {
         self.links.clear();
-        self.links
-            .resize(self.vector.len(), SortLink { index: 0, next: SortLink::NONE });
+        self.links.resize(
+            self.vector.len(),
+            SortLink {
+                index: 0,
+                next: SortLink::NONE,
+            },
+        );
         self.used_buckets.clear();
 
         // Reset all heads
