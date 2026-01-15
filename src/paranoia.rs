@@ -394,7 +394,6 @@ impl Paranoia {
                 self.merge_verified(i, offset);
             }
         }
-
     }
 
     /// Merge verified data into the root block.

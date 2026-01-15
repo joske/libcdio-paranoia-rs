@@ -99,7 +99,9 @@ impl CBlock {
     #[must_use]
     pub fn get(&self, pos: i64) -> Option<i16> {
         if self.contains(pos) {
-            offset_index(self.begin, pos).and_then(|idx| self.vector.get(idx)).copied()
+            offset_index(self.begin, pos)
+                .and_then(|idx| self.vector.get(idx))
+                .copied()
         } else {
             None
         }
@@ -109,7 +111,9 @@ impl CBlock {
     #[must_use]
     pub fn get_flags(&self, pos: i64) -> Option<SampleFlags> {
         if self.contains(pos) {
-            offset_index(self.begin, pos).and_then(|idx| self.flags.get(idx)).copied()
+            offset_index(self.begin, pos)
+                .and_then(|idx| self.flags.get(idx))
+                .copied()
         } else {
             None
         }
@@ -235,7 +239,9 @@ impl VFragment {
     #[must_use]
     pub fn get(&self, pos: i64) -> Option<i16> {
         if self.contains(pos) {
-            offset_index(self.begin, pos).and_then(|idx| self.vector.get(idx)).copied()
+            offset_index(self.begin, pos)
+                .and_then(|idx| self.vector.get(idx))
+                .copied()
         } else {
             None
         }

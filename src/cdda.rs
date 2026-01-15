@@ -156,9 +156,7 @@ impl CdromDrive {
             .map(|s| CString::new(s).map_err(|_| Error::IdentifyError))
             .transpose()?;
 
-        let device_ptr = device_cstr
-            .as_ref()
-            .map_or(ptr::null(), |s| s.as_ptr());
+        let device_ptr = device_cstr.as_ref().map_or(ptr::null(), |s| s.as_ptr());
 
         let p_cdio = unsafe { cdio_open(device_ptr, driver_id_t_DRIVER_UNKNOWN) };
 

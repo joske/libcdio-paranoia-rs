@@ -391,9 +391,7 @@ pub unsafe extern "C" fn cdio_cddap_sector_gettrack(d: *mut CdromDriveT, lsn: Ls
     let Some(drive) = (unsafe { d.as_ref() }) else {
         return -1;
     };
-    drive
-        .sector_get_track(lsn)
-        .map_or(-1, c_int::from)
+    drive.sector_get_track(lsn).map_or(-1, c_int::from)
 }
 
 /// Get track channel count.
