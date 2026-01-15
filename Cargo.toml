@@ -1,0 +1,30 @@
+[package]
+name = "cdio-paranoia"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Rust implementation of libcdio-paranoia - CD audio extraction with error correction"
+repository = "https://github.com/example/libcdio-paranoia-rs"
+keywords = ["cdio", "paranoia", "cd", "audio", "ripping"]
+categories = ["multimedia::audio", "hardware-support"]
+
+[lib]
+name = "cdio_paranoia"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+libc = "0.2"
+bitflags = "2"
+thiserror = "2"
+
+# libcdio bindings - optional, enables real CD drive access
+libcdio-sys = { version = "2.0", optional = true, default-features = false, features = [
+  "cdda",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = ["libcdio"]
+libcdio = ["dep:libcdio-sys"]
