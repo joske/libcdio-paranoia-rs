@@ -20,10 +20,14 @@ pub type CallbackFn = Box<dyn FnMut(i64, ParanoiaCallback)>;
 ///
 /// Manages the verified reading of CD audio data with automatic
 /// error detection and correction.
+///
+/// Note: Paranoia does NOT own the drive - the caller is responsible
+/// for keeping the drive alive while paranoia is in use, and for
+/// freeing the drive separately after paranoia is freed.
 #[allow(dead_code)]
 pub struct Paranoia {
-    /// The CD drive being read
-    drive: CdromDrive,
+    /// Pointer to the CD drive being read (not owned)
+    drive: *mut CdromDrive,
     /// Current paranoia mode flags
     mode: ParanoiaMode,
     /// Current read position (in samples)
@@ -56,11 +60,22 @@ pub struct Paranoia {
     output_buffer: Vec<i16>,
 }
 
+// Safety: The raw pointer is only used for reading from the drive,
+// and the caller guarantees the drive outlives the paranoia instance.
+unsafe impl Send for Paranoia {}
+
 impl Paranoia {
-    /// Create a new paranoia instance for the given drive.
-    pub fn new(drive: CdromDrive) -> Self {
-        let first_sector = drive.disc_first_sector();
-        let last_sector = drive.disc_last_sector();
+    /// Create a new paranoia instance from a raw drive pointer.
+    ///
+    /// # Safety
+    /// The caller must ensure:
+    /// - `drive` is a valid pointer to a `CdromDrive`
+    /// - The drive outlives this paranoia instance
+    /// - The drive is not freed while paranoia is in use
+    pub unsafe fn from_drive_ptr(drive: *mut CdromDrive) -> Self {
+        let drive_ref = unsafe { &*drive };
+        let first_sector = drive_ref.disc_first_sector();
+        let last_sector = drive_ref.disc_last_sector();
 
         Self {
             drive,
@@ -80,6 +95,16 @@ impl Paranoia {
             callback: None,
             output_buffer: vec![0i16; CD_FRAMEWORDS],
         }
+    }
+
+    /// Create a new paranoia instance for the given drive.
+    ///
+    /// Note: This leaks the drive - use `from_drive_ptr` for FFI.
+    pub fn new(drive: CdromDrive) -> Self {
+        // Leak the drive to get a stable pointer
+        let drive_ptr = Box::into_raw(Box::new(drive));
+        // Safety: we just created this pointer
+        unsafe { Self::from_drive_ptr(drive_ptr) }
     }
 
     /// Set the paranoia mode.
@@ -120,8 +145,9 @@ impl Paranoia {
 
     /// Set the reading range.
     pub fn set_range(&mut self, start: Lsn, end: Lsn) {
-        self.first_sector = start.max(self.drive.disc_first_sector());
-        self.last_sector = end.min(self.drive.disc_last_sector());
+        let drive = unsafe { &*self.drive };
+        self.first_sector = start.max(drive.disc_first_sector());
+        self.last_sector = end.min(drive.disc_last_sector());
 
         // Reset cursor if out of range
         let cursor_sector = (self.cursor / CD_FRAMEWORDS as i64) as Lsn;
@@ -202,7 +228,8 @@ impl Paranoia {
 
     /// Direct read without verification (internal, returns success bool).
     fn read_direct_internal(&mut self, sector: Lsn) -> bool {
-        match self.drive.read_audio(sector, 1) {
+        let drive = unsafe { &mut *self.drive };
+        match drive.read_audio(sector, 1) {
             Ok(data) => {
                 let copy_len = data.len().min(CD_FRAMEWORDS);
                 self.output_buffer[..copy_len].copy_from_slice(&data[..copy_len]);
@@ -217,10 +244,11 @@ impl Paranoia {
     /// Uses simple double-read verification: read sector twice and compare.
     fn read_verified_internal(&mut self, target_sector: Lsn, max_retries: i32) -> bool {
         let target_begin = target_sector as i64 * CD_FRAMEWORDS as i64;
+        let drive = unsafe { &mut *self.drive };
 
         for retry in 0..max_retries {
             // First read
-            let read1 = match self.drive.read_audio(target_sector, 1) {
+            let read1: Vec<i16> = match drive.read_audio(target_sector, 1) {
                 Ok(data) => data,
                 Err(_) => {
                     self.report_callback(target_begin, ParanoiaCallback::ReadError);
@@ -229,7 +257,7 @@ impl Paranoia {
             };
 
             // Second read for verification
-            let read2 = match self.drive.read_audio(target_sector, 1) {
+            let read2: Vec<i16> = match drive.read_audio(target_sector, 1) {
                 Ok(data) => data,
                 Err(_) => {
                     self.report_callback(target_begin, ParanoiaCallback::ReadError);
@@ -253,7 +281,7 @@ impl Paranoia {
         }
 
         // Exhausted retries - use last read anyway
-        if let Ok(data) = self.drive.read_audio(target_sector, 1) {
+        if let Ok(data) = drive.read_audio(target_sector, 1) {
             let copy_len = data.len().min(CD_FRAMEWORDS);
             self.output_buffer[..copy_len].copy_from_slice(&data[..copy_len]);
             return true;
@@ -272,7 +300,8 @@ impl Paranoia {
         let read_count = (read_end - read_start) as i64;
 
         // Read from drive
-        let data = self.drive.read_audio(read_start, read_count)?;
+        let drive = unsafe { &mut *self.drive };
+        let data = drive.read_audio(read_start, read_count)?;
         let begin_samples = read_start as i64 * CD_FRAMEWORDS as i64;
 
         // Create cache block
@@ -416,13 +445,19 @@ impl Paranoia {
     }
 
     /// Get a reference to the underlying drive.
+    ///
+    /// # Safety
+    /// The returned reference is only valid as long as the drive pointer is valid.
     pub fn drive(&self) -> &CdromDrive {
-        &self.drive
+        unsafe { &*self.drive }
     }
 
     /// Get a mutable reference to the underlying drive.
+    ///
+    /// # Safety
+    /// The returned reference is only valid as long as the drive pointer is valid.
     pub fn drive_mut(&mut self) -> &mut CdromDrive {
-        &mut self.drive
+        unsafe { &mut *self.drive }
     }
 
     /// Get the current cursor position in samples.

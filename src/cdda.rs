@@ -135,11 +135,12 @@ impl CdromDrive {
         }
     }
 
-    /// Open a CD-ROM drive by device path.
+    /// Identify a CD-ROM drive by device path (does NOT open it).
     ///
     /// If `device` is None or empty, the default CD-ROM device is used.
+    /// Call `open_drive()` after this to actually open the drive.
     #[cfg(feature = "libcdio")]
-    pub fn open(device: Option<&str>) -> Result<Self> {
+    pub fn identify_device(device: Option<&str>) -> Result<Self> {
         let device_cstr = device
             .filter(|s| !s.is_empty())
             .map(|s| CString::new(s).map_err(|_| Error::IdentifyError))
@@ -156,7 +157,7 @@ impl CdromDrive {
             return Err(Error::IdentifyError);
         }
 
-        let mut drive = Self {
+        Ok(Self {
             device_name: device.map(String::from),
             drive_model: None,
             opened: false,
@@ -173,12 +174,22 @@ impl CdromDrive {
             last_milliseconds: 0,
             track_is_audio: [false; MAXTRK],
             backend: DriveBackend::Libcdio(LibcdioBackend { p_cdio }),
-        };
+        })
+    }
 
-        // Read the TOC
-        drive.read_toc()?;
-        drive.opened = true;
+    /// Identify a CD-ROM drive - stub version when libcdio is not available.
+    #[cfg(not(feature = "libcdio"))]
+    pub fn identify_device(_device: Option<&str>) -> Result<Self> {
+        Err(Error::InterfaceNotSupported)
+    }
 
+    /// Open a CD-ROM drive by device path (identifies AND opens).
+    ///
+    /// If `device` is None or empty, the default CD-ROM device is used.
+    #[cfg(feature = "libcdio")]
+    pub fn open(device: Option<&str>) -> Result<Self> {
+        let mut drive = Self::identify_device(device)?;
+        drive.open_drive()?;
         Ok(drive)
     }
 
@@ -188,13 +199,13 @@ impl CdromDrive {
         Err(Error::InterfaceNotSupported)
     }
 
-    /// Identify a CD-ROM drive by path.
+    /// Identify a CD-ROM drive by path (legacy API).
     ///
     /// Creates a drive handle without fully opening it.
     pub fn identify(device: &str, message_dest: MessageDest) -> Result<Self> {
         #[cfg(feature = "libcdio")]
         {
-            let mut drive = Self::open(Some(device))?;
+            let mut drive = Self::identify_device(Some(device))?;
             drive.message_dest = message_dest;
             Ok(drive)
         }

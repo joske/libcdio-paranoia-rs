@@ -58,11 +58,18 @@ pub struct CdromDriveS {
 // Version functions
 // ============================================================================
 
+/// Wrapper to make raw pointers Sync for static storage.
+#[repr(transparent)]
+pub struct SyncPtr(pub *const c_char);
+unsafe impl Sync for SyncPtr {}
+
+/// Version string (null-terminated).
+static VERSION_STR: &[u8] = concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
+
 /// Get libcdio-paranoia version string.
 #[no_mangle]
 pub extern "C" fn cdio_paranoia_version() -> *const c_char {
-    static VERSION_CSTR: &[u8] = concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
-    VERSION_CSTR.as_ptr() as *const c_char
+    VERSION_STR.as_ptr() as *const c_char
 }
 
 /// Get CDDA interface version string.
@@ -76,15 +83,18 @@ pub extern "C" fn cdio_cddap_version() -> *const c_char {
 // ============================================================================
 
 /// Initialize paranoia from a drive handle.
+///
+/// Note: paranoia does NOT take ownership of the drive.
+/// The caller must keep the drive alive while paranoia is in use,
+/// and must free the drive separately after freeing paranoia.
 #[no_mangle]
 pub unsafe extern "C" fn cdio_paranoia_init(d: *mut CdromDriveT) -> *mut CdromParanoiaT {
     if d.is_null() {
         return ptr::null_mut();
     }
 
-    // Take ownership of the drive
-    let drive = unsafe { Box::from_raw(d) };
-    let paranoia = Paranoia::new(*drive);
+    // Create paranoia from drive pointer (does NOT take ownership)
+    let paranoia = unsafe { Paranoia::from_drive_ptr(d) };
     Box::into_raw(Box::new(paranoia))
 }
 
@@ -213,20 +223,22 @@ pub unsafe extern "C" fn cdio_cddap_find_a_cdrom(
     ptr::null_mut()
 }
 
-/// Identify a CD-ROM drive by path.
+/// Identify a CD-ROM drive by path (does NOT open it).
+/// Call cdio_cddap_open() after this to open the drive.
 #[no_mangle]
 pub unsafe extern "C" fn cdio_cddap_identify(
     psz_device: *const c_char,
     messagedest: c_int,
     ppsz_message: *mut *mut c_char,
 ) -> *mut CdromDriveT {
-    if psz_device.is_null() {
-        return ptr::null_mut();
-    }
-
-    let device = match unsafe { CStr::from_ptr(psz_device) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return ptr::null_mut(),
+    // Get device string, or None for default
+    let device: Option<&str> = if psz_device.is_null() {
+        None
+    } else {
+        match unsafe { CStr::from_ptr(psz_device) }.to_str() {
+            Ok(s) if !s.is_empty() => Some(s),
+            _ => None,
+        }
     };
 
     let message_dest = match messagedest {
@@ -240,8 +252,11 @@ pub unsafe extern "C" fn cdio_cddap_identify(
         unsafe { *ppsz_message = ptr::null_mut() };
     }
 
-    match CdromDrive::identify(device, message_dest) {
-        Ok(drive) => Box::into_raw(Box::new(drive)),
+    match CdromDrive::identify_device(device) {
+        Ok(mut drive) => {
+            drive.message_dest = message_dest;
+            Box::into_raw(Box::new(drive))
+        }
         Err(_) => ptr::null_mut(),
     }
 }
@@ -495,11 +510,6 @@ pub unsafe extern "C" fn data_bigendianp(_d: *mut CdromDriveT) -> c_int {
 // ============================================================================
 // Callback mode string array (for debugging)
 // ============================================================================
-
-/// Wrapper to make raw pointers Sync for static storage.
-#[repr(transparent)]
-pub struct SyncPtr(pub *const c_char);
-unsafe impl Sync for SyncPtr {}
 
 /// Callback mode names for debugging.
 #[no_mangle]
