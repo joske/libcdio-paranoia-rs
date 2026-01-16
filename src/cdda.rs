@@ -20,9 +20,9 @@ use crate::{
 use libcdio_sys::{
     cdio_destroy, cdio_free_device_list, cdio_get_devices, cdio_get_first_track_num,
     cdio_get_num_tracks, cdio_get_track_channels, cdio_get_track_copy_permit,
-    cdio_get_track_format, cdio_get_track_last_lsn, cdio_get_track_lsn,
-    cdio_get_track_preemphasis, cdio_open, cdio_read_audio_sectors, driver_id_t_DRIVER_DEVICE,
-    driver_id_t_DRIVER_UNKNOWN, driver_return_code_t, driver_return_code_t_DRIVER_OP_SUCCESS,
+    cdio_get_track_format, cdio_get_track_last_lsn, cdio_get_track_lsn, cdio_get_track_preemphasis,
+    cdio_open, cdio_read_audio_sectors, driver_id_t_DRIVER_DEVICE, driver_id_t_DRIVER_UNKNOWN,
+    driver_return_code_t, driver_return_code_t_DRIVER_OP_SUCCESS,
     track_flag_t_CDIO_TRACK_FLAG_TRUE, track_format_t_TRACK_FORMAT_AUDIO, CdIo_t, CDIO_INVALID_LSN,
 };
 

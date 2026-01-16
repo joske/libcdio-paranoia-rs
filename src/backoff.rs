@@ -79,7 +79,11 @@ impl BackoffStrategy {
     }
 
     /// Create a backoff strategy with custom settings.
-    pub fn with_settings(error_threshold: u32, backoff_sectors: i32, backoff_delay_ms: u64) -> Self {
+    pub fn with_settings(
+        error_threshold: u32,
+        backoff_sectors: i32,
+        backoff_delay_ms: u64,
+    ) -> Self {
         Self {
             error_count: 0,
             error_threshold,

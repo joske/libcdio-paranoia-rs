@@ -301,8 +301,12 @@ impl VFragment {
     pub fn mark_verified(&mut self, start: i64, end: i64) {
         let start_offset = start.saturating_sub(self.begin);
         let end_offset = end.saturating_sub(self.begin);
-        let start_idx = usize::try_from(start_offset).unwrap_or(0).min(self.flags.len());
-        let end_idx = usize::try_from(end_offset).unwrap_or(self.flags.len()).min(self.flags.len());
+        let start_idx = usize::try_from(start_offset)
+            .unwrap_or(0)
+            .min(self.flags.len());
+        let end_idx = usize::try_from(end_offset)
+            .unwrap_or(self.flags.len())
+            .min(self.flags.len());
         for flag in &mut self.flags[start_idx..end_idx] {
             flag.0 |= SampleFlags::VERIFIED.0;
         }
@@ -517,7 +521,10 @@ impl RootBlock {
         if start >= self.flags.len() {
             return 0;
         }
-        self.flags[start..end].iter().filter(|f| f.is_verified()).count()
+        self.flags[start..end]
+            .iter()
+            .filter(|f| f.is_verified())
+            .count()
     }
 
     /// Merge a verified fragment into the root block.
@@ -559,9 +566,14 @@ impl RootBlock {
         // Handle appending
         if fragment.end() > self.end() {
             let append_start = (self.end() - fragment.begin) as usize;
-            self.vector.extend_from_slice(&fragment.vector[append_start..]);
-            self.flags.extend_from_slice(&fragment.flags[append_start..]);
-            self.silenceflag.extend(std::iter::repeat_n(false, fragment.vector.len() - append_start));
+            self.vector
+                .extend_from_slice(&fragment.vector[append_start..]);
+            self.flags
+                .extend_from_slice(&fragment.flags[append_start..]);
+            self.silenceflag.extend(std::iter::repeat_n(
+                false,
+                fragment.vector.len() - append_start,
+            ));
         }
 
         // Merge overlapping region - prefer verified data

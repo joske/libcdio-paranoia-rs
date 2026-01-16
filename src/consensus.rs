@@ -136,9 +136,7 @@ impl ConsensusBuilder {
         }
 
         // Find the value with the most votes
-        let (value, vote_count) = votes
-            .into_iter()
-            .max_by_key(|(_, count)| *count)?;
+        let (value, vote_count) = votes.into_iter().max_by_key(|(_, count)| *count)?;
 
         let confidence = vote_count as f64 / total as f64;
 
