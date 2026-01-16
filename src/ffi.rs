@@ -217,14 +217,19 @@ pub unsafe extern "C" fn cdio_paranoia_cachemodel_size(
 /// Find a CD-ROM drive with audio disc.
 #[no_mangle]
 pub unsafe extern "C" fn cdio_cddap_find_a_cdrom(
-    _messagedest: c_int,
+    messagedest: c_int,
     ppsz_message: *mut *mut c_char,
 ) -> *mut CdromDriveT {
-    // Stub implementation - would need full libcdio integration
     if !ppsz_message.is_null() {
         unsafe { *ppsz_message = ptr::null_mut() };
     }
-    ptr::null_mut()
+
+    let destination = MessageDest::from(messagedest);
+
+    match crate::cdda::find_a_cdrom(destination) {
+        Some(drive) => Box::into_raw(Box::new(drive)),
+        None => ptr::null_mut(),
+    }
 }
 
 /// Identify a CD-ROM drive by path (does NOT open it).

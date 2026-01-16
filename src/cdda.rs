@@ -18,9 +18,10 @@ use crate::{
 
 #[cfg(feature = "libcdio")]
 use libcdio_sys::{
-    cdio_destroy, cdio_get_first_track_num, cdio_get_num_tracks, cdio_get_track_channels,
-    cdio_get_track_copy_permit, cdio_get_track_format, cdio_get_track_last_lsn,
-    cdio_get_track_lsn, cdio_get_track_preemphasis, cdio_open, cdio_read_audio_sectors,
+    cdio_destroy, cdio_free_device_list, cdio_get_devices, cdio_get_first_track_num,
+    cdio_get_num_tracks, cdio_get_track_channels, cdio_get_track_copy_permit,
+    cdio_get_track_format, cdio_get_track_last_lsn, cdio_get_track_lsn,
+    cdio_get_track_preemphasis, cdio_open, cdio_read_audio_sectors, driver_id_t_DRIVER_DEVICE,
     driver_id_t_DRIVER_UNKNOWN, driver_return_code_t, driver_return_code_t_DRIVER_OP_SUCCESS,
     track_flag_t_CDIO_TRACK_FLAG_TRUE, track_format_t_TRACK_FORMAT_AUDIO, CdIo_t, CDIO_INVALID_LSN,
 };
@@ -703,6 +704,66 @@ pub fn get_default_device() -> Option<String> {
 #[allow(dead_code)]
 #[cfg(not(feature = "libcdio"))]
 pub fn get_default_device() -> Option<String> {
+    None
+}
+
+/// Find a CD-ROM drive with an audio disc.
+///
+/// Scans available CD-ROM devices and returns the first one that has an audio disc.
+/// Returns None if no suitable drive is found.
+#[cfg(feature = "libcdio")]
+pub fn find_a_cdrom(message_dest: MessageDest) -> Option<CdromDrive> {
+    // Get list of CD-ROM devices
+    let devices = unsafe { cdio_get_devices(driver_id_t_DRIVER_DEVICE) };
+    if devices.is_null() {
+        return None;
+    }
+
+    let mut result: Option<CdromDrive> = None;
+
+    // Iterate through device list (null-terminated array of char*)
+    let mut i = 0;
+    loop {
+        let device_ptr = unsafe { *devices.offset(i) };
+        if device_ptr.is_null() {
+            break;
+        }
+
+        let device_name = match unsafe { CStr::from_ptr(device_ptr) }.to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                i += 1;
+                continue;
+            }
+        };
+
+        // Try to open this device
+        if let Ok(mut drive) = CdromDrive::identify_device(Some(device_name)) {
+            drive.message_dest = message_dest;
+            if drive.open_drive().is_ok() && drive.tracks > 0 {
+                // Check if it has at least one audio track
+                let has_audio = (0..drive.tracks as usize)
+                    .any(|idx| drive.track_is_audio.get(idx).copied().unwrap_or(false));
+
+                if has_audio {
+                    result = Some(drive);
+                    break;
+                }
+            }
+        }
+
+        i += 1;
+    }
+
+    // Free the device list
+    unsafe { cdio_free_device_list(devices) };
+
+    result
+}
+
+/// Find a CD-ROM drive - stub version when libcdio is not available.
+#[cfg(not(feature = "libcdio"))]
+pub fn find_a_cdrom(_message_dest: MessageDest) -> Option<CdromDrive> {
     None
 }
 
