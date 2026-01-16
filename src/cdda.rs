@@ -18,10 +18,11 @@ use crate::{
 
 #[cfg(feature = "libcdio")]
 use libcdio_sys::{
-    cdio_destroy, cdio_get_first_track_num, cdio_get_num_tracks, cdio_get_track_format,
-    cdio_get_track_last_lsn, cdio_get_track_lsn, cdio_open, cdio_read_audio_sectors,
+    cdio_destroy, cdio_get_first_track_num, cdio_get_num_tracks, cdio_get_track_channels,
+    cdio_get_track_copy_permit, cdio_get_track_format, cdio_get_track_last_lsn,
+    cdio_get_track_lsn, cdio_get_track_preemphasis, cdio_open, cdio_read_audio_sectors,
     driver_id_t_DRIVER_UNKNOWN, driver_return_code_t, driver_return_code_t_DRIVER_OP_SUCCESS,
-    track_format_t_TRACK_FORMAT_AUDIO, CdIo_t, CDIO_INVALID_LSN,
+    track_flag_t_CDIO_TRACK_FLAG_TRUE, track_format_t_TRACK_FORMAT_AUDIO, CdIo_t, CDIO_INVALID_LSN,
 };
 
 /// CD-ROM drive handle.
@@ -528,15 +529,63 @@ impl CdromDrive {
     /// Get the number of channels for a track (2 for stereo, 4 for quad).
     #[must_use]
     pub fn track_channels(&self, track: TrackNum) -> i32 {
+        if track == 0 || track > self.tracks {
+            return 2; // Default to stereo for invalid track
+        }
+
         #[cfg(feature = "libcdio")]
         if let DriveBackend::Libcdio(backend) = &self.backend {
-            let channels = unsafe { libcdio_sys::cdio_get_track_channels(backend.p_cdio, track) };
+            let channels = unsafe { cdio_get_track_channels(backend.p_cdio, track) };
             if channels > 0 {
                 return channels as i32;
             }
         }
 
         2 // Default to stereo
+    }
+
+    /// Check if digital copy is permitted for a track.
+    ///
+    /// Returns 1 if copy permitted, 0 if not, -1 if unknown/error.
+    #[must_use]
+    pub fn track_copyp(&self, track: TrackNum) -> i32 {
+        if track == 0 || track > self.tracks {
+            return -1; // Invalid track
+        }
+
+        #[cfg(feature = "libcdio")]
+        if let DriveBackend::Libcdio(backend) = &self.backend {
+            let flag = unsafe { cdio_get_track_copy_permit(backend.p_cdio, track) };
+            return if flag == track_flag_t_CDIO_TRACK_FLAG_TRUE {
+                1
+            } else {
+                0
+            };
+        }
+
+        0 // Default: copy not permitted (conservative)
+    }
+
+    /// Check if pre-emphasis is enabled for a track.
+    ///
+    /// Returns 1 if pre-emphasis enabled, 0 if not, -1 if unknown/error.
+    #[must_use]
+    pub fn track_preemp(&self, track: TrackNum) -> i32 {
+        if track == 0 || track > self.tracks {
+            return -1; // Invalid track
+        }
+
+        #[cfg(feature = "libcdio")]
+        if let DriveBackend::Libcdio(backend) = &self.backend {
+            let flag = unsafe { cdio_get_track_preemphasis(backend.p_cdio, track) };
+            return if flag == track_flag_t_CDIO_TRACK_FLAG_TRUE {
+                1
+            } else {
+                0
+            };
+        }
+
+        0 // Default: no pre-emphasis
     }
 
     /// Get first audio sector on disc.

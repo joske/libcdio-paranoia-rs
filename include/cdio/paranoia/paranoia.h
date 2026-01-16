@@ -88,10 +88,15 @@ lsn_t cdio_cddap_track_lastsector(cdrom_drive_t *d, int track);
 int cdio_cddap_track_channels(cdrom_drive_t *d, int track);
 int cdio_cddap_track_audiop(cdrom_drive_t *d, int track);
 int cdio_cddap_track_copyp(cdrom_drive_t *d, int track);
+int cdio_cddap_track_preemp(cdrom_drive_t *d, int track);
 int cdio_cddap_sector_gettrack(cdrom_drive_t *d, lsn_t sector);
+
+/* Data endianness detection (1=big, 0=little, -1=unknown) */
+int data_bigendianp(cdrom_drive_t *d);
 
 /* Drive settings */
 int cdio_cddap_speed_set(cdrom_drive_t *d, int speed);
+void cdio_cddap_verbose_set(cdrom_drive_t *d, int err_action, int mes_action);
 
 /* Messages */
 char *cdio_cddap_messages(cdrom_drive_t *d);

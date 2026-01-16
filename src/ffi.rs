@@ -381,8 +381,8 @@ pub unsafe extern "C" fn cdio_cddap_track_lastsector(d: *mut CdromDriveT, i_trac
 
 /// Get number of tracks.
 #[no_mangle]
-pub unsafe extern "C" fn cdio_cddap_tracks(d: *mut CdromDriveT) -> u8 {
-    unsafe { d.as_ref() }.map_or(0, CdromDrive::track_count)
+pub unsafe extern "C" fn cdio_cddap_tracks(d: *mut CdromDriveT) -> c_int {
+    unsafe { d.as_ref() }.map_or(0, |d| d.track_count() as c_int)
 }
 
 /// Get track containing a sector.
@@ -396,8 +396,11 @@ pub unsafe extern "C" fn cdio_cddap_sector_gettrack(d: *mut CdromDriveT, lsn: Ls
 
 /// Get track channel count.
 #[no_mangle]
-pub unsafe extern "C" fn cdio_cddap_track_channels(_d: *mut CdromDriveT, _i_track: u8) -> c_int {
-    2 // Stereo
+pub unsafe extern "C" fn cdio_cddap_track_channels(d: *mut CdromDriveT, i_track: u8) -> c_int {
+    let Some(drive) = (unsafe { d.as_ref() }) else {
+        return 2; // Default to stereo
+    };
+    drive.track_channels(i_track)
 }
 
 /// Check if track is audio.
@@ -411,14 +414,20 @@ pub unsafe extern "C" fn cdio_cddap_track_audiop(d: *mut CdromDriveT, i_track: u
 
 /// Check if track has copy permit.
 #[no_mangle]
-pub unsafe extern "C" fn cdio_cddap_track_copyp(_d: *mut CdromDriveT, _i_track: u8) -> c_int {
-    0 // Stub
+pub unsafe extern "C" fn cdio_cddap_track_copyp(d: *mut CdromDriveT, i_track: u8) -> c_int {
+    let Some(drive) = (unsafe { d.as_ref() }) else {
+        return 0;
+    };
+    drive.track_copyp(i_track)
 }
 
 /// Check if track has preemphasis.
 #[no_mangle]
-pub unsafe extern "C" fn cdio_cddap_track_preemp(_d: *mut CdromDriveT, _i_track: u8) -> c_int {
-    0 // Stub
+pub unsafe extern "C" fn cdio_cddap_track_preemp(d: *mut CdromDriveT, i_track: u8) -> c_int {
+    let Some(drive) = (unsafe { d.as_ref() }) else {
+        return 0;
+    };
+    drive.track_preemp(i_track)
 }
 
 /// Get first audio sector on disc.
@@ -480,9 +489,14 @@ pub unsafe extern "C" fn cdio_cddap_free_messages(psz_messages: *mut c_char) {
 }
 
 /// Detect endianness of CD data.
+///
+/// Returns 1 if big-endian, 0 if little-endian, -1 if unknown.
 #[no_mangle]
-pub unsafe extern "C" fn data_bigendianp(_d: *mut CdromDriveT) -> c_int {
-    0 // Assume little-endian (most common)
+pub unsafe extern "C" fn data_bigendianp(d: *mut CdromDriveT) -> c_int {
+    let Some(drive) = (unsafe { d.as_ref() }) else {
+        return -1; // Unknown
+    };
+    drive.bigendian
 }
 
 // ============================================================================
@@ -624,7 +638,7 @@ pub unsafe extern "C" fn cdda_track_lastsector(d: *mut CdromDriveT, i_track: u8)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn cdda_tracks(d: *mut CdromDriveT) -> u8 {
+pub unsafe extern "C" fn cdda_tracks(d: *mut CdromDriveT) -> c_int {
     unsafe { cdio_cddap_tracks(d) }
 }
 
