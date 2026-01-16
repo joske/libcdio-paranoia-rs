@@ -138,7 +138,7 @@ impl BackoffStrategy {
     }
 
     /// Get the backoff parameters for the current error state.
-    /// Returns (seek_offset, delay) where seek_offset is negative (seek backward).
+    /// Returns (`seek_offset`, delay) where `seek_offset` is negative (seek backward).
     pub fn get_backoff_params(&self) -> (i32, Duration) {
         (-self.backoff_sectors, self.backoff_delay)
     }

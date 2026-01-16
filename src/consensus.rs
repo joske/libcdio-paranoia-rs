@@ -312,8 +312,7 @@ pub fn vote_samples(reads: &[&[i16]]) -> Option<Vec<i16>> {
         let winner = votes
             .into_iter()
             .max_by_key(|(_, count)| *count)
-            .map(|(value, _)| value)
-            .unwrap_or(0);
+            .map_or(0, |(value, _)| value);
 
         result.push(winner);
     }

@@ -282,8 +282,7 @@ impl VFragment {
     #[must_use]
     pub fn is_verified(&self, pos: i64) -> bool {
         self.get_flags(pos)
-            .map(|f| f.is_verified())
-            .unwrap_or(false)
+            .is_some_and(super::types::SampleFlags::is_verified)
     }
 
     /// Check if all samples in the fragment are verified.
@@ -531,8 +530,8 @@ impl RootBlock {
 
         if self.is_empty() {
             // Initialize from fragment
-            self.vector = fragment.vector.clone();
-            self.flags = fragment.flags.clone();
+            self.vector.clone_from(&fragment.vector);
+            self.flags.clone_from(&fragment.flags);
             self.begin = fragment.begin;
             self.lastsector = fragment.lastsector;
             self.silenceflag = vec![false; fragment.vector.len()];
@@ -562,7 +561,7 @@ impl RootBlock {
             let append_start = (self.end() - fragment.begin) as usize;
             self.vector.extend_from_slice(&fragment.vector[append_start..]);
             self.flags.extend_from_slice(&fragment.flags[append_start..]);
-            self.silenceflag.extend(std::iter::repeat(false).take(fragment.vector.len() - append_start));
+            self.silenceflag.extend(std::iter::repeat_n(false, fragment.vector.len() - append_start));
         }
 
         // Merge overlapping region - prefer verified data

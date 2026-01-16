@@ -557,11 +557,7 @@ impl CdromDrive {
         #[cfg(feature = "libcdio")]
         if let DriveBackend::Libcdio(backend) = &self.backend {
             let flag = unsafe { cdio_get_track_copy_permit(backend.p_cdio, track) };
-            return if flag == track_flag_t_CDIO_TRACK_FLAG_TRUE {
-                1
-            } else {
-                0
-            };
+            return i32::from(flag == track_flag_t_CDIO_TRACK_FLAG_TRUE);
         }
 
         0 // Default: copy not permitted (conservative)
@@ -579,11 +575,7 @@ impl CdromDrive {
         #[cfg(feature = "libcdio")]
         if let DriveBackend::Libcdio(backend) = &self.backend {
             let flag = unsafe { cdio_get_track_preemphasis(backend.p_cdio, track) };
-            return if flag == track_flag_t_CDIO_TRACK_FLAG_TRUE {
-                1
-            } else {
-                0
-            };
+            return i32::from(flag == track_flag_t_CDIO_TRACK_FLAG_TRUE);
         }
 
         0 // Default: no pre-emphasis
@@ -729,12 +721,9 @@ pub fn find_a_cdrom(message_dest: MessageDest) -> Option<CdromDrive> {
             break;
         }
 
-        let device_name = match unsafe { CStr::from_ptr(device_ptr) }.to_str() {
-            Ok(s) => s,
-            Err(_) => {
-                i += 1;
-                continue;
-            }
+        let Ok(device_name) = unsafe { CStr::from_ptr(device_ptr) }.to_str() else {
+            i += 1;
+            continue;
         };
 
         // Try to open this device

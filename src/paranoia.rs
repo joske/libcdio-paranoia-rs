@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Threshold for considering samples as silence (absolute value).
-/// Samples with |value| <= SILENCE_THRESHOLD are considered silent.
+/// Samples with |value| <= `SILENCE_THRESHOLD` are considered silent.
 const SILENCE_THRESHOLD: i16 = 5;
 
 /// Detect jitter offset between reference and test reads (standalone function).
@@ -315,14 +315,16 @@ impl Paranoia {
     /// 1. Check if data is already verified in root block
     /// 2. If not, read a large batch and verify against cached previous reads
     /// 3. For sequential reads, most data comes from cache (very efficient)
+    #[allow(clippy::too_many_lines)]
     fn read_verified_internal(&mut self, target_sector: Lsn, max_retries: i32) -> bool {
+        // Maximum number of backoffs before giving up on this sector
+        const MAX_BACKOFFS: u32 = 3;
+
         let target_begin = target_sector as i64 * CD_FRAMEWORDS as i64;
         let target_end = target_begin + CD_FRAMEWORDS as i64;
 
         // Check if we already have this data verified in root
-        if !self.root.is_empty()
-            && self.root.begin <= target_begin
-            && self.root.end() >= target_end
+        if !self.root.is_empty() && self.root.begin <= target_begin && self.root.end() >= target_end
         {
             if let Some(frame) = self.root.extract_frame(target_begin) {
                 self.output_buffer.copy_from_slice(frame);
@@ -342,55 +344,48 @@ impl Paranoia {
         let read_end = (read_start + batch_size + overlap_sectors).min(self.last_sector + 1);
         let read_count = (read_end - read_start) as i64;
 
-        // Maximum number of backoffs before giving up on this sector
-        const MAX_BACKOFFS: u32 = 3;
-
         for retry in 0..max_retries {
             // Read the batch
-            let new_data = match drive.read_audio(read_start, read_count) {
-                Ok(data) => {
-                    // Record success
-                    self.backoff.record_success(target_sector);
-                    data
-                }
-                Err(_) => {
-                    self.report_callback(target_begin, ParanoiaCallback::ReadError);
+            let new_data = if let Ok(data) = drive.read_audio(read_start, read_count) {
+                // Record success
+                self.backoff.record_success(target_sector);
+                data
+            } else {
+                self.report_callback(target_begin, ParanoiaCallback::ReadError);
 
-                    // Record error and check if backoff is needed
-                    let needs_backoff = self.backoff.record_error(target_sector);
-                    let action = crate::backoff::determine_backoff_action(
-                        &self.backoff,
-                        needs_backoff,
-                        MAX_BACKOFFS,
-                    );
+                // Record error and check if backoff is needed
+                let needs_backoff = self.backoff.record_error(target_sector);
+                let action = crate::backoff::determine_backoff_action(
+                    &self.backoff,
+                    needs_backoff,
+                    MAX_BACKOFFS,
+                );
 
-                    match action {
-                        BackoffAction::Continue => {
-                            // Not enough errors yet - just retry
-                            continue;
-                        }
-                        BackoffAction::Backoff { sectors, delay } => {
-                            // Perform backoff: seek away, wait, seek back
-                            let backoff_target = (target_sector - sectors as i32)
-                                .max(self.first_sector);
+                match action {
+                    BackoffAction::Continue => {
+                        // Not enough errors yet - just retry
+                        continue;
+                    }
+                    BackoffAction::Backoff { sectors, delay } => {
+                        // Perform backoff: seek away, wait, seek back
+                        let backoff_target = (target_sector - sectors).max(self.first_sector);
 
-                            // Seek away from problem area
-                            let _ = drive.read_audio(backoff_target, 1);
+                        // Seek away from problem area
+                        let _ = drive.read_audio(backoff_target, 1);
 
-                            // Wait for the drive to settle
-                            std::thread::sleep(delay);
+                        // Wait for the drive to settle
+                        std::thread::sleep(delay);
 
-                            // Record that we performed a backoff
-                            self.backoff.record_backoff();
-                            self.report_callback(target_begin, ParanoiaCallback::Overlap);
+                        // Record that we performed a backoff
+                        self.backoff.record_backoff();
+                        self.report_callback(target_begin, ParanoiaCallback::Overlap);
 
-                            continue;
-                        }
-                        BackoffAction::GiveUp => {
-                            // Too many backoffs - give up on this sector
-                            self.backoff.reset_error_state();
-                            return false;
-                        }
+                        continue;
+                    }
+                    BackoffAction::GiveUp => {
+                        // Too many backoffs - give up on this sector
+                        self.backoff.reset_error_state();
+                        return false;
                     }
                 }
             };
@@ -410,7 +405,8 @@ impl Paranoia {
                 }
             } else if !self.cache.is_empty() {
                 // Try overlap::find_overlap for more sophisticated matching
-                let (overlap_found, overlap_offset) = self.find_overlap_with_cache(&new_data, new_begin);
+                let (overlap_found, overlap_offset) =
+                    self.find_overlap_with_cache(&new_data, new_begin);
                 if overlap_found {
                     verified = true;
                     if overlap_offset != 0 {
@@ -423,23 +419,19 @@ impl Paranoia {
 
             // If not verified against cache, do double-read verification
             if !verified {
-                let read2 = match drive.read_audio(read_start, read_count) {
-                    Ok(data) => data,
-                    Err(_) => {
-                        self.report_callback(target_begin, ParanoiaCallback::ReadError);
+                let Ok(read2) = drive.read_audio(read_start, read_count) else {
+                    self.report_callback(target_begin, ParanoiaCallback::ReadError);
 
-                        // Record error for backoff tracking
-                        let needs_backoff = self.backoff.record_error(target_sector);
-                        if needs_backoff && !self.backoff.should_give_up(MAX_BACKOFFS) {
-                            let (sectors, delay) = self.backoff.get_backoff_params();
-                            let backoff_target = (target_sector + sectors)
-                                .max(self.first_sector);
-                            let _ = drive.read_audio(backoff_target, 1);
-                            std::thread::sleep(delay);
-                            self.backoff.record_backoff();
-                        }
-                        continue;
+                    // Record error for backoff tracking
+                    let needs_backoff = self.backoff.record_error(target_sector);
+                    if needs_backoff && !self.backoff.should_give_up(MAX_BACKOFFS) {
+                        let (sectors, delay) = self.backoff.get_backoff_params();
+                        let backoff_target = (target_sector + sectors).max(self.first_sector);
+                        let _ = drive.read_audio(backoff_target, 1);
+                        std::thread::sleep(delay);
+                        self.backoff.record_backoff();
                     }
+                    continue;
                 };
 
                 if new_data == read2 {
@@ -470,18 +462,16 @@ impl Paranoia {
                             }
                         }
 
-                        let additional = match drive.read_audio(read_start, read_count) {
-                            Ok(data) => data,
-                            Err(_) => {
-                                self.report_callback(new_begin, ParanoiaCallback::ReadError);
-                                // Record error but don't do full backoff during consensus
-                                self.backoff.record_error(target_sector);
-                                continue;
-                            }
+                        let Ok(additional) = drive.read_audio(read_start, read_count) else {
+                            self.report_callback(new_begin, ParanoiaCallback::ReadError);
+                            // Record error but don't do full backoff during consensus
+                            self.backoff.record_error(target_sector);
+                            continue;
                         };
 
                         // Detect jitter offset
-                        let jitter = detect_jitter_offset_static(&new_data, &additional, search_range);
+                        let jitter =
+                            detect_jitter_offset_static(&new_data, &additional, search_range);
                         builder.add_read(ReadResult::new(additional, new_begin, jitter));
 
                         if i == 0 {
@@ -494,15 +484,13 @@ impl Paranoia {
                         // Check acceptability before consuming result
                         let acceptable = result.is_acceptable();
 
-                        let mut fragment = VFragment::from_samples(
-                            &result.samples,
-                            new_begin,
-                            read_end as i64,
-                        );
+                        let mut fragment =
+                            VFragment::from_samples(&result.samples, new_begin, read_end as i64);
                         fragment.flags = result.flags;
 
                         // Add to cache
-                        let block = CBlock::from_sectors(&result.samples, new_begin, read_end as i64);
+                        let block =
+                            CBlock::from_sectors(&result.samples, new_begin, read_end as i64);
                         let sort = SortInfo::from_vector(&result.samples, new_begin);
                         self.cache.push(CachedBlock { block, sort });
                         self.trim_cache();
@@ -595,9 +583,9 @@ impl Paranoia {
             }
 
             // Skip verification in silent regions - they all look the same
-            if self.is_region_silent(read1, pos, match_len) {
+            if Self::is_region_silent(read1, pos, match_len) {
                 // If both reads are silent at this position, check next position
-                if self.is_region_silent(read2, pos, match_len) {
+                if Self::is_region_silent(read2, pos, match_len) {
                     continue;
                 }
                 // One is silent, one isn't - that's a problem, but check other positions
@@ -612,23 +600,21 @@ impl Paranoia {
                     let actual_offset = if *sign == 0 { 0 } else { offset as i32 * sign };
                     let pos2 = (pos as i32 + actual_offset) as usize;
 
-                    if pos2 + match_len <= read2.len() {
-                        if slice1 == &read2[pos2..pos2 + match_len] {
-                            if actual_offset != 0 {
-                                self.jitter = actual_offset.abs() as i64;
-                                self.record_jitter_with_report(actual_offset as i64, 1, 0);
-                                self.report_callback(0, ParanoiaCallback::FixupEdge);
-                            }
-                            return true;
+                    if pos2 + match_len <= read2.len() && slice1 == &read2[pos2..pos2 + match_len] {
+                        if actual_offset != 0 {
+                            self.jitter = actual_offset.abs() as i64;
+                            self.record_jitter_with_report(actual_offset as i64, 1, 0);
+                            self.report_callback(0, ParanoiaCallback::FixupEdge);
                         }
+                        return true;
                     }
                 }
             }
         }
 
         // Jitter matching failed - try rift analysis
-        if let Some(mismatch_pos) = self.find_mismatch_position(read1, read2) {
-            let rift = self.analyze_rift(read1, read2, mismatch_pos);
+        if let Some(mismatch_pos) = Self::find_mismatch_position(read1, read2) {
+            let rift = Self::analyze_rift(read1, read2, mismatch_pos);
             if let Some(_repaired) = self.handle_rift(read1, read2, rift) {
                 // Rift was repaired - consider it a match
                 return true;
@@ -639,7 +625,7 @@ impl Paranoia {
     }
 
     /// Verify new data against cached blocks using isort for efficient matching.
-    /// Returns (verified, jitter_offset).
+    /// Returns (verified, `jitter_offset`).
     fn verify_with_isort(&self, new_data: &[i16], new_begin: i64) -> (bool, i64) {
         if self.cache.is_empty() {
             return (false, 0);
@@ -704,7 +690,8 @@ impl Paranoia {
                 // Need at least MIN_WORDS_OVERLAP matching samples
                 if overlap_len >= MIN_WORDS_OVERLAP as usize {
                     let new_slice = &new_data[new_offset..new_offset + overlap_len];
-                    let cached_slice = &cached.block.vector[cached_offset..cached_offset + overlap_len];
+                    let cached_slice =
+                        &cached.block.vector[cached_offset..cached_offset + overlap_len];
 
                     if new_slice == cached_slice {
                         // Found matching overlap - data is verified
@@ -712,7 +699,9 @@ impl Paranoia {
                     }
 
                     // Try to find jittered match
-                    if let Some(offset) = self.find_jitter_match(new_slice, &cached.block.vector, cached_offset) {
+                    if let Some(offset) =
+                        self.find_jitter_match(new_slice, &cached.block.vector, cached_offset)
+                    {
                         self.jitter = offset.abs();
                         self.dynoverlap.record_jitter(offset, 1);
                         self.report_callback(new_begin, ParanoiaCallback::FixupEdge);
@@ -727,7 +716,12 @@ impl Paranoia {
     }
 
     /// Find jitter offset between new samples and cached block.
-    fn find_jitter_match(&self, new_slice: &[i16], cached_vec: &[i16], nominal_start: usize) -> Option<i64> {
+    fn find_jitter_match(
+        &self,
+        new_slice: &[i16],
+        cached_vec: &[i16],
+        nominal_start: usize,
+    ) -> Option<i64> {
         // Use dynamic search range, minimum 32 samples
         let search_range = self.dynoverlap.search.max(32);
         let match_len = new_slice.len().min(MIN_WORDS_OVERLAP as usize);
@@ -739,10 +733,11 @@ impl Paranoia {
         if drift != 0 {
             let start = (nominal_start as i64 + drift) as usize;
             let end = start + match_len;
-            if end <= cached_vec.len() && start < cached_vec.len() {
-                if &new_slice[..match_len] == &cached_vec[start..end] {
-                    return Some(drift);
-                }
+            if end <= cached_vec.len()
+                && start < cached_vec.len()
+                && new_slice[..match_len] == cached_vec[start..end]
+            {
+                return Some(drift);
             }
         }
 
@@ -753,10 +748,11 @@ impl Paranoia {
                 let start = (nominal_start as i64 + actual_offset) as usize;
                 let end = start + match_len;
 
-                if end <= cached_vec.len() && start < cached_vec.len() {
-                    if &new_slice[..match_len] == &cached_vec[start..end] {
-                        return Some(actual_offset);
-                    }
+                if end <= cached_vec.len()
+                    && start < cached_vec.len()
+                    && new_slice[..match_len] == cached_vec[start..end]
+                {
+                    return Some(actual_offset);
                 }
             }
         }
@@ -765,7 +761,7 @@ impl Paranoia {
 
     /// Check if a region is silent (near-zero samples).
     /// Silent regions can't be used for jitter detection because all silence looks the same.
-    fn is_region_silent(&self, data: &[i16], start: usize, len: usize) -> bool {
+    fn is_region_silent(data: &[i16], start: usize, len: usize) -> bool {
         if start + len > data.len() {
             return false;
         }
@@ -775,7 +771,7 @@ impl Paranoia {
     /// Find the first non-silent position in data starting from given position.
     /// Returns None if the rest of the data is all silent.
     #[allow(dead_code)]
-    fn find_non_silent(&self, data: &[i16], start: usize) -> Option<usize> {
+    fn find_non_silent(data: &[i16], start: usize) -> Option<usize> {
         for (i, &sample) in data[start..].iter().enumerate() {
             if sample.abs() > SILENCE_THRESHOLD {
                 return Some(start + i);
@@ -786,12 +782,12 @@ impl Paranoia {
 
     /// Analyze a rift (discontinuity) between two reads.
     /// Used when jitter matching fails to find simple offset.
-    fn analyze_rift(&mut self, read1: &[i16], read2: &[i16], mismatch_pos: usize) -> RiftType {
+    fn analyze_rift(read1: &[i16], read2: &[i16], mismatch_pos: usize) -> RiftType {
         // First check if the mismatch is in a silent region
         let check_len = MIN_WORDS_OVERLAP as usize;
         if mismatch_pos + check_len <= read1.len()
-            && self.is_region_silent(read1, mismatch_pos, check_len)
-            && self.is_region_silent(read2, mismatch_pos, check_len)
+            && Self::is_region_silent(read1, mismatch_pos, check_len)
+            && Self::is_region_silent(read2, mismatch_pos, check_len)
         {
             // Both are silent at mismatch point - can't determine rift, treat as OK
             return RiftType::NoRift;
@@ -801,24 +797,19 @@ impl Paranoia {
         let max_search = 256i64; // Search up to 256 samples for resync
         gap::analyze_rift_forward(
             read1,
-            0,  // offset_a
-            mismatch_pos as i64,  // end_a (position where mismatch starts)
+            0,                   // offset_a
+            mismatch_pos as i64, // end_a (position where mismatch starts)
             read2,
-            0,  // offset_b
-            mismatch_pos as i64,  // end_b
+            0,                   // offset_b
+            mismatch_pos as i64, // end_b
             max_search,
         )
     }
 
     /// Find first mismatch position between two reads.
-    fn find_mismatch_position(&self, read1: &[i16], read2: &[i16]) -> Option<usize> {
+    fn find_mismatch_position(read1: &[i16], read2: &[i16]) -> Option<usize> {
         let len = read1.len().min(read2.len());
-        for i in 0..len {
-            if read1[i] != read2[i] {
-                return Some(i);
-            }
-        }
-        None
+        (0..len).find(|&i| read1[i] != read2[i])
     }
 
     /// Handle rift repair - attempt to reconcile dropped/duplicated samples.
@@ -851,7 +842,10 @@ impl Paranoia {
                 Some(read1.to_vec())
             }
 
-            RiftType::Garbage { sync_a: _, sync_b: _ } => {
+            RiftType::Garbage {
+                sync_a: _,
+                sync_b: _,
+            } => {
                 // Both have garbage - can't reliably repair
                 self.report_callback(0, ParanoiaCallback::Scratch);
                 None
@@ -1030,7 +1024,7 @@ impl Paranoia {
         }
     }
 
-    /// Try to find overlap between new data and cached blocks using overlap::find_overlap.
+    /// Try to find overlap between new data and cached blocks using `overlap::find_overlap`.
     /// Returns (found, offset) where offset is the jitter if found.
     fn find_overlap_with_cache(&self, new_data: &[i16], new_begin: i64) -> (bool, i64) {
         for cached in &self.cache {
@@ -1078,7 +1072,8 @@ impl Paranoia {
 
         // Trim old fragments that are behind the cursor
         let cursor = self.cursor;
-        self.fragments.retain(|f| f.end() > cursor - (CD_FRAMEWORDS * 10) as i64);
+        self.fragments
+            .retain(|f| f.end() > cursor - (CD_FRAMEWORDS * 10) as i64);
     }
 
     /// Consolidate fragments by merging overlapping ones.
@@ -1175,7 +1170,10 @@ impl Paranoia {
     /// Get total verified samples across all fragments.
     #[must_use]
     pub fn total_verified_samples(&self) -> usize {
-        self.fragments.iter().map(|f| f.verified_count()).sum()
+        self.fragments
+            .iter()
+            .map(super::block::VFragment::verified_count)
+            .sum()
     }
 }
 
@@ -1307,7 +1305,7 @@ mod tests {
 
         // Overlapping region should be verified
         for i in 50..100 {
-            assert!(frag1.is_verified(i), "Sample {} should be verified", i);
+            assert!(frag1.is_verified(i), "Sample {i} should be verified");
         }
     }
 
