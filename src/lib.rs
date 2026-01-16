@@ -44,8 +44,10 @@ pub mod constants;
 pub mod error;
 pub mod types;
 
+mod backoff;
 mod block;
 mod cdda;
+mod consensus;
 mod gap;
 mod isort;
 mod overlap;

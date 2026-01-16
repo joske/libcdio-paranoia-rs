@@ -159,8 +159,9 @@ impl Default for CBlock {
 /// Verified data fragment.
 ///
 /// Represents a contiguous segment of verified audio data that can be
-/// merged into the final output.
-#[derive(Debug)]
+/// merged into the final output. Each sample has associated flags
+/// indicating verification status.
+#[derive(Debug, Clone)]
 pub struct VFragment {
     /// Verified 16-bit audio samples
     pub vector: Vec<i16>,
@@ -168,6 +169,8 @@ pub struct VFragment {
     pub begin: i64,
     /// Last sector covered by this fragment
     pub lastsector: i64,
+    /// Per-sample verification flags
+    pub flags: Vec<SampleFlags>,
 }
 
 impl VFragment {
@@ -178,16 +181,31 @@ impl VFragment {
             vector: Vec::new(),
             begin: 0,
             lastsector: 0,
+            flags: Vec::new(),
         }
     }
 
-    /// Create a fragment from a slice of samples.
+    /// Create a fragment from a slice of samples (unverified).
     #[must_use]
     pub fn from_samples(data: &[i16], begin: i64, lastsector: i64) -> Self {
+        let len = data.len();
         Self {
             vector: data.to_vec(),
             begin,
             lastsector,
+            flags: vec![SampleFlags::NONE; len],
+        }
+    }
+
+    /// Create a verified fragment from a slice of samples.
+    #[must_use]
+    pub fn from_samples_verified(data: &[i16], begin: i64, lastsector: i64) -> Self {
+        let len = data.len();
+        Self {
+            vector: data.to_vec(),
+            begin,
+            lastsector,
+            flags: vec![SampleFlags::VERIFIED; len],
         }
     }
 
@@ -204,6 +222,7 @@ impl VFragment {
             vector: block.vector[start_idx..end_idx].to_vec(),
             begin: start.max(block.begin),
             lastsector: block.lastsector,
+            flags: block.flags[start_idx..end_idx].to_vec(),
         }
     }
 
@@ -246,6 +265,136 @@ impl VFragment {
             None
         }
     }
+
+    /// Get flags at an absolute position.
+    #[must_use]
+    pub fn get_flags(&self, pos: i64) -> Option<SampleFlags> {
+        if self.contains(pos) {
+            offset_index(self.begin, pos)
+                .and_then(|idx| self.flags.get(idx))
+                .copied()
+        } else {
+            None
+        }
+    }
+
+    /// Check if a sample is verified.
+    #[must_use]
+    pub fn is_verified(&self, pos: i64) -> bool {
+        self.get_flags(pos)
+            .map(|f| f.is_verified())
+            .unwrap_or(false)
+    }
+
+    /// Check if all samples in the fragment are verified.
+    #[must_use]
+    pub fn all_verified(&self) -> bool {
+        self.flags.iter().all(|f| f.is_verified())
+    }
+
+    /// Count verified samples.
+    #[must_use]
+    pub fn verified_count(&self) -> usize {
+        self.flags.iter().filter(|f| f.is_verified()).count()
+    }
+
+    /// Mark a range as verified.
+    pub fn mark_verified(&mut self, start: i64, end: i64) {
+        let start_offset = start.saturating_sub(self.begin);
+        let end_offset = end.saturating_sub(self.begin);
+        let start_idx = usize::try_from(start_offset).unwrap_or(0).min(self.flags.len());
+        let end_idx = usize::try_from(end_offset).unwrap_or(self.flags.len()).min(self.flags.len());
+        for flag in &mut self.flags[start_idx..end_idx] {
+            flag.0 |= SampleFlags::VERIFIED.0;
+        }
+    }
+
+    /// Mark edges (first and last N samples) as needing verification.
+    pub fn mark_edges(&mut self, edge_size: usize) {
+        let len = self.flags.len();
+        // Mark leading edge
+        for flag in self.flags.iter_mut().take(edge_size.min(len)) {
+            flag.0 |= SampleFlags::EDGE.0;
+            flag.0 &= !SampleFlags::VERIFIED.0; // Edges are not verified
+        }
+        // Mark trailing edge
+        if len > edge_size {
+            for flag in self.flags.iter_mut().skip(len - edge_size) {
+                flag.0 |= SampleFlags::EDGE.0;
+                flag.0 &= !SampleFlags::VERIFIED.0;
+            }
+        }
+    }
+
+    /// Try to merge another fragment into this one.
+    /// Returns true if merge was successful (fragments overlap and match).
+    pub fn try_merge(&mut self, other: &VFragment) -> bool {
+        // Check for overlap
+        let overlap_start = self.begin.max(other.begin);
+        let overlap_end = self.end().min(other.end());
+
+        if overlap_start >= overlap_end {
+            // No overlap - check if contiguous
+            if self.end() == other.begin {
+                // Other follows self - append
+                self.vector.extend_from_slice(&other.vector);
+                self.flags.extend_from_slice(&other.flags);
+                self.lastsector = self.lastsector.max(other.lastsector);
+                return true;
+            } else if other.end() == self.begin {
+                // Self follows other - prepend
+                let mut new_vec = other.vector.clone();
+                new_vec.extend_from_slice(&self.vector);
+                let mut new_flags = other.flags.clone();
+                new_flags.extend_from_slice(&self.flags);
+                self.vector = new_vec;
+                self.flags = new_flags;
+                self.begin = other.begin;
+                return true;
+            }
+            return false;
+        }
+
+        // Verify overlapping region matches
+        let self_start = (overlap_start - self.begin) as usize;
+        let other_start = (overlap_start - other.begin) as usize;
+        let overlap_len = (overlap_end - overlap_start) as usize;
+
+        let self_slice = &self.vector[self_start..self_start + overlap_len];
+        let other_slice = &other.vector[other_start..other_start + overlap_len];
+
+        if self_slice != other_slice {
+            return false; // Overlap doesn't match
+        }
+
+        // Mark overlapping region as verified in both
+        for i in 0..overlap_len {
+            self.flags[self_start + i].0 |= SampleFlags::VERIFIED.0;
+        }
+
+        // Extend if other has data beyond self
+        if other.begin < self.begin {
+            // Prepend data from other
+            let prepend_len = (self.begin - other.begin) as usize;
+            let mut new_vec = other.vector[..prepend_len].to_vec();
+            new_vec.extend_from_slice(&self.vector);
+            let mut new_flags = other.flags[..prepend_len].to_vec();
+            new_flags.extend_from_slice(&self.flags);
+            self.vector = new_vec;
+            self.flags = new_flags;
+            self.begin = other.begin;
+        }
+
+        if other.end() > self.end() {
+            // Append data from other
+            let append_start = (self.end() - other.begin) as usize;
+            self.vector.extend_from_slice(&other.vector[append_start..]);
+            self.flags.extend_from_slice(&other.flags[append_start..]);
+        }
+
+        self.lastsector = self.lastsector.max(other.lastsector);
+        true
+    }
 }
 
 impl Default for VFragment {
@@ -257,7 +406,7 @@ impl Default for VFragment {
 /// Root block containing the verified output data.
 ///
 /// This is the final destination for verified audio samples that will
-/// be returned to the caller.
+/// be returned to the caller. Tracks per-sample verification status.
 #[derive(Debug)]
 pub struct RootBlock {
     /// Verified audio samples ready for output
@@ -268,7 +417,9 @@ pub struct RootBlock {
     pub returnedlimit: i64,
     /// Last sector covered
     pub lastsector: i64,
-    /// Silence flags for each sample
+    /// Per-sample verification flags
+    pub flags: Vec<SampleFlags>,
+    /// Silence flags for each sample (for silence handling)
     pub silenceflag: Vec<bool>,
 }
 
@@ -281,6 +432,7 @@ impl RootBlock {
             begin: 0,
             returnedlimit: 0,
             lastsector: 0,
+            flags: Vec::new(),
             silenceflag: Vec::new(),
         }
     }
@@ -293,6 +445,7 @@ impl RootBlock {
             begin: 0,
             returnedlimit: 0,
             lastsector: 0,
+            flags: Vec::with_capacity(samples),
             silenceflag: Vec::with_capacity(samples),
         }
     }
@@ -321,6 +474,7 @@ impl RootBlock {
     /// Clear the root block.
     pub fn clear(&mut self) {
         self.vector.clear();
+        self.flags.clear();
         self.silenceflag.clear();
         self.begin = 0;
         self.returnedlimit = 0;
@@ -339,6 +493,103 @@ impl RootBlock {
         } else {
             None
         }
+    }
+
+    /// Check if a frame is fully verified.
+    #[must_use]
+    pub fn is_frame_verified(&self, pos: i64) -> bool {
+        let Some(start) = offset_index(self.begin, pos) else {
+            return false;
+        };
+        let end = start + CD_FRAMEWORDS;
+        if end > self.flags.len() {
+            return false;
+        }
+        self.flags[start..end].iter().all(|f| f.is_verified())
+    }
+
+    /// Count verified samples in a frame.
+    #[must_use]
+    pub fn frame_verified_count(&self, pos: i64) -> usize {
+        let Some(start) = offset_index(self.begin, pos) else {
+            return 0;
+        };
+        let end = (start + CD_FRAMEWORDS).min(self.flags.len());
+        if start >= self.flags.len() {
+            return 0;
+        }
+        self.flags[start..end].iter().filter(|f| f.is_verified()).count()
+    }
+
+    /// Merge a verified fragment into the root block.
+    /// Only copies data where the fragment has verified samples or
+    /// where root has unverified samples.
+    pub fn merge_fragment(&mut self, fragment: &VFragment) {
+        if fragment.is_empty() {
+            return;
+        }
+
+        if self.is_empty() {
+            // Initialize from fragment
+            self.vector = fragment.vector.clone();
+            self.flags = fragment.flags.clone();
+            self.begin = fragment.begin;
+            self.lastsector = fragment.lastsector;
+            self.silenceflag = vec![false; fragment.vector.len()];
+            return;
+        }
+
+        let overlap_start = self.begin.max(fragment.begin);
+        let overlap_end = self.end().min(fragment.end());
+
+        // Handle prepending
+        if fragment.begin < self.begin {
+            let prepend_len = (self.begin - fragment.begin) as usize;
+            let mut new_vec = fragment.vector[..prepend_len].to_vec();
+            new_vec.extend_from_slice(&self.vector);
+            let mut new_flags = fragment.flags[..prepend_len].to_vec();
+            new_flags.extend_from_slice(&self.flags);
+            let mut new_silence = vec![false; prepend_len];
+            new_silence.extend_from_slice(&self.silenceflag);
+            self.vector = new_vec;
+            self.flags = new_flags;
+            self.silenceflag = new_silence;
+            self.begin = fragment.begin;
+        }
+
+        // Handle appending
+        if fragment.end() > self.end() {
+            let append_start = (self.end() - fragment.begin) as usize;
+            self.vector.extend_from_slice(&fragment.vector[append_start..]);
+            self.flags.extend_from_slice(&fragment.flags[append_start..]);
+            self.silenceflag.extend(std::iter::repeat(false).take(fragment.vector.len() - append_start));
+        }
+
+        // Merge overlapping region - prefer verified data
+        if overlap_start < overlap_end {
+            let root_start = (overlap_start - self.begin) as usize;
+            let frag_start = (overlap_start - fragment.begin) as usize;
+            let overlap_len = (overlap_end - overlap_start) as usize;
+
+            for i in 0..overlap_len {
+                let root_idx = root_start + i;
+                let frag_idx = frag_start + i;
+
+                // If fragment sample is verified and root isn't, use fragment
+                // If both verified, mark as verified (they should match)
+                // If fragment verified, use fragment data and mark verified
+                if fragment.flags[frag_idx].is_verified() {
+                    if !self.flags[root_idx].is_verified() {
+                        // Replace with verified data
+                        self.vector[root_idx] = fragment.vector[frag_idx];
+                    }
+                    // Mark as verified
+                    self.flags[root_idx].0 |= SampleFlags::VERIFIED.0;
+                }
+            }
+        }
+
+        self.lastsector = self.lastsector.max(fragment.lastsector);
     }
 }
 
