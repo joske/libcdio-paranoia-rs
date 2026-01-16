@@ -6,6 +6,8 @@ A Rust reimplementation of libcdio-paranoia for CD audio extraction with error c
 
 - Drop-in replacement for the C libcdio-paranoia library
 - Full C API compatibility via FFI
+- **Drive auto-discovery**: Automatically finds CD-ROM drives with audio discs
+- **Track metadata detection**: Channels, copy permit, pre-emphasis, endianness
 - Multi-stage verification for audio integrity:
   - Cache-based verification against previous reads
   - Double-read verification with jitter detection
@@ -100,14 +102,22 @@ gcc -o /tmp/rip examples/rip_track.c \
 ```c
 #include <cdio/paranoia/paranoia.h>
 
-// Identify and open drive
-cdrom_drive_t *drive = cdio_cddap_identify(NULL, CDDA_MESSAGE_FORGETIT, NULL);
-cdio_cddap_open(drive);
+// Auto-discover a CD-ROM drive with audio disc
+cdrom_drive_t *drive = cdio_cddap_find_a_cdrom(CDDA_MESSAGE_FORGETIT, NULL);
+// Or identify a specific device:
+// cdrom_drive_t *drive = cdio_cddap_identify("/dev/sr0", CDDA_MESSAGE_FORGETIT, NULL);
+// cdio_cddap_open(drive);
 
 // Query disc info
 int tracks = cdio_cddap_tracks(drive);
 lsn_t first = cdio_cddap_track_firstsector(drive, 1);
 lsn_t last = cdio_cddap_track_lastsector(drive, 1);
+
+// Query track metadata
+int channels = cdio_cddap_track_channels(drive, 1);  // 2=stereo, 4=quad
+int copyable = cdio_cddap_track_copyp(drive, 1);     // 1=copy permitted
+int preemp = cdio_cddap_track_preemp(drive, 1);      // 1=pre-emphasis
+int bigendian = data_bigendianp(drive);              // 1=big, 0=little
 
 // Initialize paranoia
 cdrom_paranoia_t *paranoia = cdio_paranoia_init(drive);
